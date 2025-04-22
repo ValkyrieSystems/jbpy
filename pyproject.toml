@@ -1,0 +1,36 @@
+[build-system]
+requires = [
+    "setuptools >= 77",
+    "setuptools-scm >= 8",
+]
+build-backend = "setuptools.build_meta"
+[tool.setuptools_scm]
+
+[project]
+dynamic = ["version"]
+requires-python = ">= 3.9"
+name = "pybiif"
+description = "Library for reading and writing Basic Image Interchange Format (BIIF) files"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Valkyrie Systems Corporation"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy"
+]
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+]
+[project.urls]
+Repository = "https://github.com/ValkyrieSystems/pybiif"
