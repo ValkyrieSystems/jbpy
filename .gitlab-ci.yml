@@ -30,4 +30,4 @@ test:
     [ ${#wheels[*]} -eq 1 ]  # make sure there is only one
     wheel_file=${wheels[0]}
     python -m pip install ${wheel_file}[dev]
-    python -m pytest
+    make test
