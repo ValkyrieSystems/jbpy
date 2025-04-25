@@ -1,4 +1,4 @@
-**pybiif** is a library for reading and writing Basic Image Interchange Format files. Including:
+**pybiif** is a library for reading and writing Joint BIIF Profile files. Including:
 * National Imagery Transmission Format (NITF)
 * North Atlantic Treaty Organisation (NATO) Secondary Imagery Format (NSIF)
 

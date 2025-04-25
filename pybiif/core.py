@@ -1,18 +1,19 @@
-"""Utilities for reading and writing NITFs
+"""Utilities for reading and writing BIIFs (NITF, NSIF)
 
-The Field, Group, SubHeaders, and Nitf classes have a dictionary-esque interface
-with key names directly copied from MIL-STD-2500C where possible.
+The Field, Group, Subheaders, and Biif classes have a dictionary-esque interface
+with key names directly copied from JBP-2024.1 where possible.
 
-In NITF, the presence of optional fields is controlled by the values of preceding
+In BIIF, the presence of optional fields is controlled by the values of preceding
 fields.  This library attempts to mimic this behavior by adding or removing fields
 as necessary when a field is updated.  For example adding image segments is accomplished
 by setting the NUMI field.
 
 Setting the value of fields is done using the `value` property.  `value` uses common python
-types (int, str, etc...) and serializes to the NITF format behind the scenes.
+types (int, str, etc...) and serializes to the BIIF format behind the scenes.
 """
 
 import argparse
+import collections.abc
 import datetime
 import logging
 import os
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class PythonConverter:
-    """Class for converting between NITF field bytes and python types"""
+    """Class for converting between BIIF field bytes and python types"""
 
     def __init__(self, name, size):
         self.name = name
@@ -36,7 +37,7 @@ class PythonConverter:
         truncated = encoded[: self.size]
         if len(truncated) < len(encoded):
             logger.warning(
-                f"NITF header field {self.name} will be truncated to {self.size} characters.\n"
+                f"BIIF header field {self.name} truncated to {self.size} characters.\n"
                 f"    old: {encoded}"
                 f"    new: {truncated}"
             )
@@ -159,7 +160,7 @@ U8 = "\x00-\xff"
 
 
 class RangeCheck:
-    """Base Class for checking the range of a NITF field"""
+    """Base Class for checking the range of a BIIF field"""
 
     def isvalid(self, decoded_value):
         raise NotImplementedError()
@@ -246,6 +247,8 @@ class AnyOf(RangeCheck):
 
 
 class Not(RangeCheck):
+    """Negate a range check"""
+
     def __init__(self, range_check):
         self.range_check = range_check
 
@@ -273,12 +276,12 @@ DATETIME_REGEX = Regex(
 DATE_REGEX = Regex(PATTERN_CC + PATTERN_YY + PATTERN_MM + PATTERN_DD)
 
 
-class NitfIOComponent:
-    """Base Class for read/writable NITF components"""
+class BiifIOComponent:
+    """Base Class for read/writable BIIF components"""
 
     def __init__(self, name):
         self.name = name
-        self.parent = None
+        self._parent = None
 
     def load(self, fd):
         """Read from a file descriptor
@@ -289,7 +292,7 @@ class NitfIOComponent:
 
         """
         try:
-            self.load_impl(fd)
+            self._load_impl(fd)
             return self
         except Exception:
             logger.error(f"Failed to read {self.name}")
@@ -309,31 +312,36 @@ class NitfIOComponent:
             fd.seek(self.get_offset(), os.SEEK_SET)
 
         try:
-            return self.dump_impl(fd)
+            return self._dump_impl(fd)
         except Exception:
             logger.error(f"Failed to wite {self.name}")
             raise
 
-    def load_impl(self, fd):
+    def _load_impl(self, fd):
         raise NotImplementedError()
 
-    def dump_impl(self, fd):
+    def _dump_impl(self, fd):
         raise NotImplementedError()
 
     def get_offset(self):
         """Return the offset from the start of the file to this component"""
         offset = 0
-        if self.parent:
-            offset = self.parent.get_offset_of(self)
+        if self._parent:
+            offset = self._parent.get_offset_of(self)
         return offset
 
-    def length(self):
+    def get_size(self):
+        """Size of this component in bytes"""
+        raise NotImplementedError()
+
+    def print(self):
+        """Print information about the component to stdout"""
         raise NotImplementedError()
 
 
-class Field(NitfIOComponent):
-    """NITF Field containing a single value.
-    Intended to have 1:1 mapping to rows in MIL-STD-2500C header tables.
+class Field(BiifIOComponent):
+    """BIIF Field containing a single value.
+    Intended to have 1:1 mapping to rows in JBP-2024.1 header tables.
 
     Args
     ----
@@ -349,12 +357,21 @@ class Field(NitfIOComponent):
         `RangeCheck` object to check acceptable values
     converter_class: `PythonConverter` class
         PythonConverter class to use to convert to/from python data types
-    type: str
     default: any
         Initial python value of the field
     setter_callback: callable
         function to call if the field's value changes
 
+    Attributes
+    ----------
+    description
+        Text description of the field.  For informational purposes only.
+    size
+        Field size in bytes
+    encoded_value
+        Field value as bytes
+    value
+        Field value as python type
     """
 
     def __init__(
@@ -372,39 +389,46 @@ class Field(NitfIOComponent):
         super().__init__(name)
         self.description = description
         self._size = size
-        self.charset = charset
-        self.range = range
+        self._charset = charset
+        self._range = range
         self._converter_class = converter_class
         self._converter = converter_class(name, size)
-        self.parent = None
-        self.setter_callback = setter_callback
+        self._setter_callback = setter_callback
 
-        self.encoded_value = None
+        self._encoded_value = None
+
         if default is not None:
             self.encoded_value = self._converter.to_bytes(default)
-
-            if not self.isvalid():
-                logger.warning(
-                    f"{self.name}: Invalid field value: {self.encoded_value}"
-                )
 
     def __eq__(self, other):
         return (
             self.name == other.name
             and self.description == other.description
-            and self.charset == other.charset
+            and self._charset == other._charset
             and self.encoded_value == other.encoded_value
         )
 
     def isvalid(self):
+        """Check if the field value matches the required character set and range restrictions"""
         valid_charset = (
             True
-            if self.charset is None
-            else bool(re.fullmatch(f"[{self.charset}]*", self.encoded_value.decode()))
+            if self._charset is None
+            else bool(re.fullmatch(f"[{self._charset}]*", self.encoded_value.decode()))
         )
 
-        valid_range = self.range.isvalid(self.value)
+        valid_range = self._range.isvalid(self.value)
         return valid_charset and valid_range
+
+    @property
+    def encoded_value(self):
+        return self._encoded_value
+
+    @encoded_value.setter
+    def encoded_value(self, value):
+        self._encoded_value = value
+
+        if not self.isvalid():
+            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value}")
 
     @property
     def size(self):
@@ -416,8 +440,8 @@ class Field(NitfIOComponent):
         self._size = value
         self._converter = self._converter_class(self.name, self._size)
 
-        if (old_value != self._size) and self.setter_callback:
-            self.setter_callback(self)
+        if (old_value != self._size) and self._setter_callback:
+            self._setter_callback(self)
 
     @property
     def value(self):
@@ -427,24 +451,19 @@ class Field(NitfIOComponent):
     def value(self, val):
         self.encoded_value = self._converter.to_bytes(val)
 
-        if not self.isvalid():
-            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value}")
+        if self._setter_callback:
+            self._setter_callback(self)
 
-        if self.setter_callback:
-            self.setter_callback(self)
-
-    def load_impl(self, fd):
+    def _load_impl(self, fd):
         self.encoded_value = fd.read(self.size)
-        if not self.isvalid():
-            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value}")
 
-        if self.setter_callback:
-            self.setter_callback(self)
+        if self._setter_callback:
+            self._setter_callback(self)
 
-    def dump_impl(self, fd):
+    def _dump_impl(self, fd):
         return fd.write(self.encoded_value)
 
-    def length(self):
+    def get_size(self):
         return self.size
 
     def print(self):
@@ -453,7 +472,7 @@ class Field(NitfIOComponent):
         )
 
 
-class BinaryPlaceholder(NitfIOComponent):
+class BinaryPlaceholder(BiifIOComponent):
     """Represents a block of large binary data.
 
     This class does not actually read, write or store data, only seek past it.
@@ -475,143 +494,158 @@ class BinaryPlaceholder(NitfIOComponent):
     def size(self, value):
         self._size = value
 
-    def load_impl(self, fd):
+    def _load_impl(self, fd):
         fd.seek(self.size, os.SEEK_CUR)
 
-    def dump_impl(self, fd):
+    def _dump_impl(self, fd):
         if self.size:
             fd.seek(self.size, os.SEEK_CUR)
 
-    def length(self):
+    def get_size(self):
         return self.size
 
     def print(self):
         print(f"{self.name:15}{self.size:11} @ {self.get_offset():11} <Binary>")
 
 
-class Group(NitfIOComponent):
+class ComponentCollection(BiifIOComponent):
+    """Base class for components with child sub-components"""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self._children = []
+
+    def __eq__(self, other):
+        return len(self._children) == len(other._children) and all(
+            [left == right for left, right in zip(self._children, other._children)]
+        )
+
+    def __len__(self):
+        return len(self._children)
+
+    def get_size(self):
+        size = 0
+        for child in self._children:
+            size += child.get_size()
+        return size
+
+    def _load_impl(self, fd):
+        for child in self._children:
+            child.load(fd)
+
+    def _dump_impl(self, fd):
+        for child in self._children:
+            child.dump(fd)
+
+    def _append(self, field):
+        field._parent = self
+        self._children.append(field)
+
+    def get_offset_of(self, child_obj):
+        offset = self.get_offset()
+
+        for child in self._children:
+            if child is child_obj:
+                return offset
+            else:
+                offset += child.get_size()
+        else:
+            raise ValueError(f"Could not find {child_obj.name}")
+
+    def print(self):
+        for child in self._children:
+            child.print()
+
+
+class Group(ComponentCollection, collections.abc.Mapping):
     """
-    A Collection of NITF fields
+    A Collection of BIIF fields.  Indexed by JBP short names.
 
     Args
     ----
     name: str
-        Name to give the group
+        Name to give the group of fields
 
     """
 
     def __init__(self, name):
         super().__init__(name)
-        self.children = []
-        self.parent = None
+        self._children = []
 
-    def __eq__(self, other):
-        return len(self.children) == len(other.children) and all(
-            [left == right for left, right in zip(self.children, other.children)]
-        )
+    def _child_names(self):
+        return [child.name for child in self._children]
 
-    def __len__(self):
-        return len(self.children)
+    def __iter__(self):
+        return iter(self._child_names)
 
-    def keys(self):
-        return [child.name for child in self.children]
+    def __getitem__(self, key):
+        try:
+            index = self._index(key)
+        except ValueError:
+            raise KeyError(key)
 
-    def load_impl(self, fd):
-        for child in self.children:
-            child.load(fd)
+        return self._children[index]
 
-    def dump_impl(self, fd):
-        for child in self.children:
-            child.dump(fd)
-
-    def append(self, field):
-        field.parent = self
-        self.children.append(field)
-
-    def insert_after(self, existing, field):
-        insert_pos = self.children.index(existing) + 1
-        self.children.insert(insert_pos, field)
-        field.parent = self
+    def _insert_after(self, existing, field):
+        insert_pos = self._children.index(existing) + 1
+        self._children.insert(insert_pos, field)
+        field._parent = self
         return field
 
     def find_all(self, pattern):
-        for child in self.children[:]:
+        """Find child components with names matching a regex pattern
+        Args
+        ----
+        pattern : str
+            Regex pattern
+
+        Yields
+        ------
+        child with name matching `pattern`
+        """
+        for child in self._children[:]:
             if re.fullmatch(pattern, child.name):
                 yield child
 
-    def remove_all(self, pattern):
+    def _remove_all(self, pattern):
         for child in self.find_all(pattern):
-            self.children.remove(child)
+            self._children.remove(child)
 
-    def length(self):
-        size = 0
-        for child in self.children:
-            size += child.length()
-        return size
-
-    def get_offset_of(self, child_obj):
-        offset = 0
-        if self.parent:
-            offset = self.parent.get_offset_of(self)
-
-        for child in self.children:
-            if child is child_obj:
-                return offset
-            else:
-                offset += child.length()
-        else:
-            raise ValueError(f"Could not find {child_obj.name}")
-
-    def index(self, name):
-        return self.keys().index(name)
-
-    def __getitem__(self, key):
-        index = self.index(key)
-        return self.children[index]
-
-    def get(self, key, default=None):
-        try:
-            return self[key]
-        except ValueError:
-            return default
-
-    def __contains__(self, key):
-        try:
-            self.index(key)
-            return True
-        except ValueError:
-            return False
+    def _index(self, name):
+        return self._child_names().index(name)
 
     def print(self):
-        for child in self.children:
+        for child in self._children:
             child.print()
 
 
-class SegmentList(Group):
+class SegmentList(ComponentCollection, collections.abc.Sequence):
+    """A sequence of BIIF segments"""
+
     def __init__(self, name, field_creator, minimum=0, maximum=1):
         super().__init__(name)
         self.field_creator = field_creator
         self.minimum = minimum
         self.maximum = maximum
-        self.children = []
-        self.set_size(self.minimum)
+        self._children = []
+        self.set_count(self.minimum)
 
     def __getitem__(self, idx):
-        return self.children[idx]
+        return self._children[idx]
 
-    def set_size(self, size):
+    def set_count(self, size):
         if not self.minimum <= size <= self.maximum:
             raise ValueError(f"Invalid {size=}")
-        for idx in range(len(self.children), size):
+        for idx in range(len(self._children), size):
             new_field = self.field_creator(idx + 1)
-            self.append(new_field)
-        for _ in range(size, len(self.children)):
-            self.children.pop()
+            self._append(new_field)
+        for _ in range(size, len(self._children)):
+            self._children.pop()
 
 
 class FileHeader(Group):
     """
-    NITF File Header
+    BIIF File Header
 
     Args
     ----
@@ -646,7 +680,7 @@ class FileHeader(Group):
 
     Note
     ----
-    See MIL-STD-2500C Table A-1
+    See JBP-2024.1 Table 5.11-1
 
     """
 
@@ -683,32 +717,32 @@ class FileHeader(Group):
         self.lren_callback = lren_callback
 
         # Initialize list with required fields
-        self.append(
+        self._append(
             Field(
                 "FHDR",
                 "File Profile Name",
                 4,
                 BCSA,
-                Constant("NITF"),
+                Enum(["NITF", "NSIF"]),
                 StringAscii,
                 default="NITF",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FVER",
                 "File Version",
                 5,
                 BCSA,
-                Constant("02.10"),
+                Enum(["02.10", "01.01"]),
                 StringAscii,
                 default="02.10",
             )
         )
-        self.append(
+        self._append(
             Field("CLEVEL", "Complexity Level", 2, BCSN_PI, MinMax(1, 99), Integer)
         )
-        self.append(
+        self._append(
             Field(
                 "STYPE",
                 "Standard Type",
@@ -719,7 +753,7 @@ class FileHeader(Group):
                 default="BF01",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "OSTAID",
                 "Originating Station ID",
@@ -729,10 +763,10 @@ class FileHeader(Group):
                 StringAscii,
             )
         )
-        self.append(
+        self._append(
             Field("FDT", "File Date and Time", 14, BCSN_I, DATETIME_REGEX, StringAscii)
         )
-        self.append(
+        self._append(
             Field(
                 "FTITLE",
                 "File Title",
@@ -743,7 +777,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCLAS",
                 "File Security Classification",
@@ -753,7 +787,7 @@ class FileHeader(Group):
                 StringISO8859_1,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCLSY",
                 "File Security Classification System",
@@ -764,7 +798,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCODE",
                 "File Codewords",
@@ -775,7 +809,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCTLH",
                 "File Control and Handling",
@@ -786,7 +820,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSREL",
                 "File Release Instructions",
@@ -797,7 +831,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSDCTP",
                 "File Declassification Type",
@@ -808,7 +842,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSDCDT",
                 "File Declassification Date",
@@ -819,7 +853,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSDCXM",
                 "File Declassification Exemption",
@@ -830,7 +864,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSDG",
                 "File Downgrade",
@@ -841,7 +875,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSDGDT",
                 "File Downgrade Date",
@@ -852,7 +886,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCLTX",
                 "File Classification Text",
@@ -863,7 +897,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCATP",
                 "File Classification Authority Type",
@@ -874,7 +908,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCAUT",
                 "File Classification Authority",
@@ -885,7 +919,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCRSN",
                 "File Classification Reason",
@@ -896,7 +930,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSSRDT",
                 "File Security Source Date",
@@ -907,7 +941,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCTLN",
                 "File Security Control Number",
@@ -918,12 +952,12 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCOP", "File Copy Number", 5, BCSN_PI, AnyRange(), Integer, default=0
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FSCPYS",
                 "File Number of Copies",
@@ -934,10 +968,10 @@ class FileHeader(Group):
                 default=0,
             )
         )
-        self.append(
+        self._append(
             Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
         )
-        self.append(
+        self._append(
             Field(
                 "FBKGC",
                 "File Background Color",
@@ -948,7 +982,7 @@ class FileHeader(Group):
                 default=(0, 0, 0),
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ONAME",
                 "Originator's Name",
@@ -959,7 +993,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "OPHONE",
                 "Originator's Phone Number",
@@ -970,22 +1004,22 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "FL", "File Length", 12, BCSN_PI, MinMax(388, 999_999_999_998), Integer
             )
         )
-        self.append(
+        self._append(
             Field(
                 "HL",
-                "NITF File Header Length",
+                "JBP File Header Length",
                 6,
                 BCSN_PI,
                 MinMax(388, 999_999),
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMI",
                 "Number of Image Segments",
@@ -997,7 +1031,7 @@ class FileHeader(Group):
                 setter_callback=self._numi_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMS",
                 "Number of Graphic Segments",
@@ -1009,7 +1043,7 @@ class FileHeader(Group):
                 setter_callback=self._nums_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMX",
                 "Reserved for Future Use",
@@ -1020,7 +1054,7 @@ class FileHeader(Group):
                 default=0,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMT",
                 "Number of Text Segments",
@@ -1032,7 +1066,7 @@ class FileHeader(Group):
                 setter_callback=self._numt_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMDES",
                 "Number of Data Extension Segments",
@@ -1044,7 +1078,7 @@ class FileHeader(Group):
                 setter_callback=self._numdes_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NUMRES",
                 "Number of Reserved Extension Segments",
@@ -1056,7 +1090,7 @@ class FileHeader(Group):
                 setter_callback=self._numres_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "UDHDL",
                 "User Defined Header Data Length",
@@ -1068,7 +1102,7 @@ class FileHeader(Group):
                 setter_callback=self._udhdl_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "XHDL",
                 "Extended Header Data Length",
@@ -1083,11 +1117,11 @@ class FileHeader(Group):
 
     def _numi_handler(self, field):
         """Handle NUMI value change"""
-        self.remove_all("LISH\\d+")
-        self.remove_all("LI\\d+")
+        self._remove_all("LISH\\d+")
+        self._remove_all("LI\\d+")
         after = field
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LISH{idx:03}",
@@ -1098,7 +1132,7 @@ class FileHeader(Group):
                     Integer,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LI{idx:03}",
@@ -1119,11 +1153,11 @@ class FileHeader(Group):
             self.lin_callback(field)
 
     def _nums_handler(self, field):
-        self.remove_all("LSSH\\d+")
-        self.remove_all("LS\\d+")
+        self._remove_all("LSSH\\d+")
+        self._remove_all("LS\\d+")
         after = field
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LSSH{idx:03}",
@@ -1135,7 +1169,7 @@ class FileHeader(Group):
                     setter_callback=self._lsshn_handler,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LS{idx:03}",
@@ -1160,11 +1194,11 @@ class FileHeader(Group):
             self.lsn_callback(field)
 
     def _numt_handler(self, field):
-        self.remove_all("LTSH\\d+")
-        self.remove_all("LT\\d+")
+        self._remove_all("LTSH\\d+")
+        self._remove_all("LT\\d+")
         after = field
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LTSH{idx:03}",
@@ -1176,7 +1210,7 @@ class FileHeader(Group):
                     setter_callback=self._ltshn_handler,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LT{idx:03}",
@@ -1201,11 +1235,11 @@ class FileHeader(Group):
             self.ltn_callback(field)
 
     def _numdes_handler(self, field):
-        self.remove_all("LDSH\\d+")
-        self.remove_all("LD\\d+")
+        self._remove_all("LDSH\\d+")
+        self._remove_all("LD\\d+")
         after = field
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LDSH{idx:03}",
@@ -1216,7 +1250,7 @@ class FileHeader(Group):
                     Integer,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LD{idx:03}",
@@ -1237,11 +1271,11 @@ class FileHeader(Group):
             self.ldn_callback(field)
 
     def _numres_handler(self, field):
-        self.remove_all("LRESH\\d+")
-        self.remove_all("LRE\\d+")
+        self._remove_all("LRESH\\d+")
+        self._remove_all("LRE\\d+")
         after = field
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LRESH{idx:03}",
@@ -1253,7 +1287,7 @@ class FileHeader(Group):
                     setter_callback=self._lreshn_handler,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"LRE{idx:03}",
@@ -1278,11 +1312,11 @@ class FileHeader(Group):
             self.lren_callback(field)
 
     def _udhdl_handler(self, field):
-        self.remove_all("UDHOFL")
-        self.remove_all("UDHD")
+        self._remove_all("UDHOFL")
+        self._remove_all("UDHD")
         after = field
         if field.value:
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     "UDHOFL",
@@ -1294,7 +1328,7 @@ class FileHeader(Group):
                     default=0,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     "UDHD",
@@ -1307,11 +1341,11 @@ class FileHeader(Group):
             )
 
     def _xhdl_handler(self, field):
-        self.remove_all("XHDLOFL")
-        self.remove_all("XHD")
+        self._remove_all("XHDLOFL")
+        self._remove_all("XHD")
         after = field
         if field.value:
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     "XHDLOFL",
@@ -1323,7 +1357,7 @@ class FileHeader(Group):
                     default=0,
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     "XHD",
@@ -1371,9 +1405,9 @@ IMAGE_CATEGORIES = [
 ]
 
 
-class ImageSubHeader(Group):
+class ImageSubheader(Group):
     """
-    Image SubHeader fields
+    Image Subheader fields
 
     Args
     ----
@@ -1382,14 +1416,14 @@ class ImageSubHeader(Group):
 
     Note
     ----
-    See MIL-STD-2500C Table A-3
+    See JBP-2024.1 Table 5.13-1
 
     """
 
     def __init__(self, name):
         super().__init__(name)
 
-        self.append(
+        self._append(
             Field(
                 "IM",
                 "File Part Type",
@@ -1400,15 +1434,15 @@ class ImageSubHeader(Group):
                 default="IM",
             )
         )
-        self.append(
+        self._append(
             Field("IID1", "Image Identifier 1", 10, BCSA, AnyRange(), StringAscii)
         )
-        self.append(
+        self._append(
             Field(
                 "IDATIM", "Image Date and Time", 14, BCSN, DATETIME_REGEX, StringAscii
             )
         )
-        self.append(
+        self._append(
             Field(
                 "TGTID",
                 "Target Identifier",
@@ -1419,7 +1453,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IID2",
                 "Image Identifier 2",
@@ -1430,7 +1464,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCLAS",
                 "Image Security Classification",
@@ -1440,7 +1474,7 @@ class ImageSubHeader(Group):
                 StringISO8859_1,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCLSY",
                 "Image Security Classification System",
@@ -1451,7 +1485,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCODE",
                 "Image Codewords",
@@ -1462,7 +1496,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCTLH",
                 "Image Control and Handling",
@@ -1473,7 +1507,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISREL",
                 "Image Release Instructions",
@@ -1484,7 +1518,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISDCTP",
                 "Image Declassification Type",
@@ -1495,7 +1529,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISDCDT",
                 "Image Declassification Date",
@@ -1506,7 +1540,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISDCXM",
                 "Image Declassification Exemption",
@@ -1517,7 +1551,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISDG",
                 "Image Downgrade",
@@ -1528,7 +1562,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISDGDT",
                 "Image Downgrade Date",
@@ -1539,7 +1573,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCLTX",
                 "Image Classification Text",
@@ -1550,7 +1584,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCATP",
                 "Image Classification Authority Type",
@@ -1561,7 +1595,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCAUT",
                 "Image Classification Authority",
@@ -1572,7 +1606,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCRSN",
                 "Image Classification Reason",
@@ -1583,7 +1617,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISSRDT",
                 "Image Security Source Date",
@@ -1594,7 +1628,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ISCTLN",
                 "Image Security Control Number",
@@ -1605,10 +1639,10 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
         )
-        self.append(
+        self._append(
             Field(
                 "ISORCE",
                 "Image Source",
@@ -1619,7 +1653,7 @@ class ImageSubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NROWS",
                 "Number of Significant Rows in Image",
@@ -1629,7 +1663,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NCOLS",
                 "Number of Significant Columns in Image",
@@ -1639,7 +1673,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "PVTYPE",
                 "Pixel Value Type",
@@ -1649,7 +1683,7 @@ class ImageSubHeader(Group):
                 StringAscii,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IREP",
                 "Image Representation",
@@ -1671,7 +1705,7 @@ class ImageSubHeader(Group):
                 StringAscii,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ICAT",
                 "Image Category",
@@ -1682,7 +1716,7 @@ class ImageSubHeader(Group):
                 default="VIS",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ABPP",
                 "Actual Bits-Per-Pixel Per Band",
@@ -1692,7 +1726,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "PJUST",
                 "Pixel Justification",
@@ -1703,7 +1737,7 @@ class ImageSubHeader(Group):
                 default="R",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ICORDS",
                 "Image Coordinate Representation",
@@ -1716,7 +1750,7 @@ class ImageSubHeader(Group):
             )
         )
         # IGEOLO
-        self.append(
+        self._append(
             Field(
                 "NICOM",
                 "Number of Image Comments",
@@ -1729,7 +1763,7 @@ class ImageSubHeader(Group):
             )
         )
         # ICOMn
-        self.append(
+        self._append(
             Field(
                 "IC",
                 "Image Compression",
@@ -1761,7 +1795,7 @@ class ImageSubHeader(Group):
             )
         )
         # COMRAT
-        self.append(
+        self._append(
             Field(
                 "NBANDS",
                 "Number of Bands",
@@ -1780,22 +1814,22 @@ class ImageSubHeader(Group):
         # NLUTSn
         # NELUTn
         # LUTDn
-        self.append(
+        self._append(
             Field(
                 "ISYNC", "Image Sync Code", 1, BCSN_PI, Constant(0), Integer, default=0
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IMODE", "Image Mode", 1, BCSA, Enum(["B", "P", "R", "S"]), StringAscii
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NBPR", "Number of Blocks Per Row", 4, BCSN_PI, MinMax(1, None), Integer
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NBPC",
                 "Number of Blocks Per Column",
@@ -1805,7 +1839,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NPPBH",
                 "Number of Pixels Per Block Horizontal",
@@ -1815,7 +1849,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NPPBV",
                 "Number of Pixels Per Block Vertical",
@@ -1825,7 +1859,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "NBPP",
                 "Number of Bits Per Pixel Per Band",
@@ -1835,7 +1869,7 @@ class ImageSubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IDLVL",
                 "Image Display Level",
@@ -1846,7 +1880,7 @@ class ImageSubHeader(Group):
                 default=1,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IALVL",
                 "Attachment Level",
@@ -1857,7 +1891,7 @@ class ImageSubHeader(Group):
                 default=0,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "ILOC",
                 "Image Location",
@@ -1868,7 +1902,7 @@ class ImageSubHeader(Group):
                 default=(0, 0),
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IMAG",
                 "Image Magnification",
@@ -1879,7 +1913,7 @@ class ImageSubHeader(Group):
                 default="1.0 ",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "UDIDL",
                 "User Defined Image Data Length",
@@ -1891,7 +1925,7 @@ class ImageSubHeader(Group):
                 setter_callback=self._udidl_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "IXSHDL",
                 "Image Extended Subheader Data Length",
@@ -1905,9 +1939,9 @@ class ImageSubHeader(Group):
         )
 
     def _icords_handler(self, field):
-        self.remove_all("IGEOLO")
+        self._remove_all("IGEOLO")
         if field.value:
-            self.insert_after(
+            self._insert_after(
                 field,
                 Field(
                     "IGEOLO",
@@ -1921,10 +1955,10 @@ class ImageSubHeader(Group):
             )
 
     def _nicom_handler(self, field):
-        self.remove_all("ICOM\\d+")
+        self._remove_all("ICOM\\d+")
         after = self["NICOM"]
         for idx in range(1, field.value + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"ICOM{idx}",
@@ -1937,9 +1971,9 @@ class ImageSubHeader(Group):
             )
 
     def _ic_handler(self, field):
-        self.remove_all("COMRAT")
+        self._remove_all("COMRAT")
         if field.value not in ("NC", "NM"):
-            self.insert_after(
+            self._insert_after(
                 self["IC"],
                 Field(
                     "COMRAT", "Compression Rate Code", 4, BCSA, AnyRange(), StringAscii
@@ -1947,9 +1981,9 @@ class ImageSubHeader(Group):
             )
 
     def _nbands_handler(self, field):
-        self.remove_all("XBANDS")
+        self._remove_all("XBANDS")
         if field.value == 0:
-            self.insert_after(
+            self._insert_after(
                 self["NBANDS"],
                 Field(
                     "XBANDS",
@@ -1967,17 +2001,17 @@ class ImageSubHeader(Group):
         self._set_num_band_groups(field.value)
 
     def _set_num_band_groups(self, count):
-        self.remove_all("IREPBAND\\d+")
-        self.remove_all("ISUBCAT\\d+")
-        self.remove_all("IFC\\d+")
-        self.remove_all("IMFLT\\d+")
-        self.remove_all("NLUTS\\d+")
-        self.remove_all("NELUT\\d+")
-        self.remove_all("LUTD\\d+")
+        self._remove_all("IREPBAND\\d+")
+        self._remove_all("ISUBCAT\\d+")
+        self._remove_all("IFC\\d+")
+        self._remove_all("IMFLT\\d+")
+        self._remove_all("NLUTS\\d+")
+        self._remove_all("NELUT\\d+")
+        self._remove_all("LUTD\\d+")
 
         after = self.get("XBANDS", self["NBANDS"])
         for idx in range(1, count + 1):
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"IREPBAND{idx:05d}",
@@ -1989,7 +2023,7 @@ class ImageSubHeader(Group):
                     default="",
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"ISUBCAT{idx:05d}",
@@ -2001,7 +2035,7 @@ class ImageSubHeader(Group):
                     default="",
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"IFC{idx:05d}",
@@ -2013,7 +2047,7 @@ class ImageSubHeader(Group):
                     default="N",
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"IMFLT{idx:05d}",
@@ -2025,7 +2059,7 @@ class ImageSubHeader(Group):
                     default="",
                 ),
             )
-            after = self.insert_after(
+            after = self._insert_after(
                 after,
                 Field(
                     f"NLUTS{idx:05d}",
@@ -2040,16 +2074,16 @@ class ImageSubHeader(Group):
             )
 
     def _udidl_handler(self, field):
-        self.remove_all("UDOFL")
-        self.remove_all("UDID")
+        self._remove_all("UDOFL")
+        self._remove_all("UDID")
         if field.value > 0:
-            after = self.insert_after(
+            after = self._insert_after(
                 field,
                 Field(
                     "UDOFL", "User Defined Overflow", 3, BCSN_PI, AnyRange(), Integer
                 ),
             )
-            self.insert_after(
+            self._insert_after(
                 after,
                 Field(
                     "UDID",
@@ -2062,10 +2096,10 @@ class ImageSubHeader(Group):
             )
 
     def _ixshdl_handler(self, field):
-        self.remove_all("IXSOFL")
-        self.remove_all("IXSHD")
+        self._remove_all("IXSOFL")
+        self._remove_all("IXSHD")
         if field.value > 0:
-            after = self.insert_after(
+            after = self._insert_after(
                 field,
                 Field(
                     "IXSOFL",
@@ -2076,7 +2110,7 @@ class ImageSubHeader(Group):
                     Integer,
                 ),
             )
-            self.insert_after(
+            self._insert_after(
                 after,
                 Field(
                     "IXSHD",
@@ -2090,10 +2124,10 @@ class ImageSubHeader(Group):
 
     def _nluts_handler(self, field):
         idx = int(field.name.removeprefix("NLUTS"))
-        self.remove_all(f"NELUT{idx:05d}\\d+")
-        self.remove_all(f"LUTD{idx:05d}\\d+")
+        self._remove_all(f"NELUT{idx:05d}\\d+")
+        self._remove_all(f"LUTD{idx:05d}\\d+")
         if field.value > 0:
-            after = self.insert_after(
+            after = self._insert_after(
                 field,
                 Field(
                     f"NELUT{idx:05d}",
@@ -2106,7 +2140,7 @@ class ImageSubHeader(Group):
                 ),
             )
             for lutidx in range(1, field.value + 1):
-                after = self.insert_after(
+                after = self._insert_after(
                     after,
                     Field(
                         f"LUTD{idx:05d}{lutidx}",
@@ -2127,8 +2161,8 @@ class ImageSubHeader(Group):
 class ImageSegment(Group):
     def __init__(self, name, data_size):
         super().__init__(name)
-        self.append(ImageSubHeader("SubHeader"))
-        self.append(BinaryPlaceholder("Data", data_size))
+        self._append(ImageSubheader("subheader"))
+        self._append(BinaryPlaceholder("Data", data_size))
 
     def print(self):
         print(f"# ImageSegment {self.name}")
@@ -2138,10 +2172,10 @@ class ImageSegment(Group):
 class GraphicSegment(Group):
     def __init__(self, name, subheader_size, data_size):
         super().__init__(name)
-        self.append(
-            Field("SubHeader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+        self._append(
+            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
         )
-        self.append(BinaryPlaceholder("Data", data_size))
+        self._append(BinaryPlaceholder("Data", data_size))
 
     def print(self):
         print(f"# GraphicSegment {self.name}")
@@ -2151,33 +2185,33 @@ class GraphicSegment(Group):
 class TextSegment(Group):
     def __init__(self, name, subheader_size, data_size):
         super().__init__(name)
-        self.append(
-            Field("SubHeader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+        self._append(
+            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
         )
-        self.append(BinaryPlaceholder("Data", data_size))
+        self._append(BinaryPlaceholder("Data", data_size))
 
     def print(self):
         print(f"# TextSegment {self.name}")
         super().print()
 
 
-class RESegment(Group):
+class ReservedExtensionSegment(Group):
     def __init__(self, name, subheader_size, data_size):
         super().__init__(name)
-        self.append(
-            Field("SubHeader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+        self._append(
+            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
         )
-        self.append(BinaryPlaceholder("Data", data_size))
+        self._append(BinaryPlaceholder("RESDATA", data_size))
 
     def print(self):
-        print(f"# RESegment {self.name}")
+        print(f"# ReservedExtensionSegment {self.name}")
         super().print()
 
 
-class DESubHeader(Group):
+class DataExtensionSubheader(Group):
     def __init__(self, name):
         super().__init__(name)
-        self.append(
+        self._append(
             Field(
                 "DE",
                 "File Part Type",
@@ -2188,7 +2222,7 @@ class DESubHeader(Group):
                 default="DE",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESID",
                 "Unique DES Type Identifier",
@@ -2199,7 +2233,7 @@ class DESubHeader(Group):
                 setter_callback=self._desid_handler,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESVER",
                 "Version of the Data Definition",
@@ -2209,7 +2243,7 @@ class DESubHeader(Group):
                 Integer,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCLAS",
                 "DES Security Classification",
@@ -2219,7 +2253,7 @@ class DESubHeader(Group):
                 StringISO8859_1,
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCLSY",
                 "DES Security Classification System",
@@ -2230,7 +2264,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCODE",
                 "DES Codewords",
@@ -2241,7 +2275,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCTLH",
                 "DES Control and Handling",
@@ -2252,7 +2286,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESREL",
                 "DES Release Instructions",
@@ -2263,7 +2297,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESDCTP",
                 "DES Declassification Type",
@@ -2274,7 +2308,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESDCDT",
                 "DES Declassification Date",
@@ -2285,7 +2319,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESDCXM",
                 "DES Declassification Exemption",
@@ -2296,7 +2330,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESDG",
                 "DES Downgrade",
@@ -2307,7 +2341,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESDGDT",
                 "DES Downgrade Date",
@@ -2318,7 +2352,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCLTX",
                 "DES Classification Text",
@@ -2329,7 +2363,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCATP",
                 "DES Classification Authority Type",
@@ -2340,7 +2374,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCAUT",
                 "DES Classification Authority",
@@ -2351,7 +2385,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCRSN",
                 "DES Classification Reason",
@@ -2362,7 +2396,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESSRDT",
                 "DES Security Source Date",
@@ -2373,7 +2407,7 @@ class DESubHeader(Group):
                 default="",
             )
         )
-        self.append(
+        self._append(
             Field(
                 "DESCTLN",
                 "DES Security Control Number",
@@ -2386,7 +2420,7 @@ class DESubHeader(Group):
         )
         # DESOFLW
         # DESITEM
-        self.append(
+        self._append(
             Field(
                 "DESSHL",
                 "DES User-defined Subheader Length",
@@ -2400,10 +2434,10 @@ class DESubHeader(Group):
         # DESSHF
 
     def _desid_handler(self, field):
-        self.remove_all("DESOFLW")
-        self.remove_all("DESITEM")
+        self._remove_all("DESOFLW")
+        self._remove_all("DESITEM")
         if field.value == "TRE_OVERFLOW":
-            after = self.insert_after(
+            after = self._insert_after(
                 self["DESCTLN"],
                 Field(
                     "DESOFLW",
@@ -2414,7 +2448,7 @@ class DESubHeader(Group):
                     StringAscii,
                 ),
             )
-            self.insert_after(
+            self._insert_after(
                 after,
                 Field(
                     "DESITEM",
@@ -2427,15 +2461,15 @@ class DESubHeader(Group):
             )
 
     def _desshl_handler(self, field):
-        self.remove_all("DESSHF")
-        self.insert_after(field, DESSHF_Factory(self["DESID"], self["DESVER"], field))
+        self._remove_all("DESSHF")
+        self._insert_after(field, DESSHF_Factory(self["DESID"], self["DESVER"], field))
 
 
-class DESegment(Group):
+class DataExtensionSegment(Group):
     def __init__(self, name, data_size):
         super().__init__(name)
-        self.append(DESubHeader("SubHeader"))
-        self.append(BinaryPlaceholder("DESDATA", data_size))
+        self._append(DataExtensionSubheader("subheader"))
+        self._append(BinaryPlaceholder("DESDATA", data_size))
 
     def print(self):
         print(f"# DESegment {self.name}")
@@ -2543,7 +2577,7 @@ class XmlDataContentSubheader(Group):
             if current_size == size:
                 break
             elif current_size < size:
-                self.append(field)
+                self._append(field)
                 current_size += field.size
             elif current_size > size:
                 raise ValueError(f"Invalid XML_DATA_CONTENT header {size=}")
@@ -2555,15 +2589,15 @@ def DESSHF_Factory(desid_field, desver_field, desshl_field):  # noqa: N802
     Args
     ----
     desid_field: Field
-        the DES SubHeader's DESID field
+        the DES Subheader's DESID field
     desver_field: Field
-        the DES SubHeader's DESVER field
+        the DES Subheader's DESVER field
     desshl_field: Field
-        the DES SubHeader's DESSHL field
+        the DES Subheader's DESSHL field
 
     Returns
     -------
-    NitfIOComponent
+    BiifIOComponent
         Either a XmlDataContentSubheader or a Field
     """
     if (desid_field.value, desver_field.value) == ("XML_DATA_CONTENT", 1):
@@ -2578,22 +2612,22 @@ def DESSHF_Factory(desid_field, desver_field, desshl_field):  # noqa: N802
     )
 
 
-class Nitf(Group):
-    """Class representing an entire NITF
+class Biif(Group):
+    """Class representing an entire NITF/NSIF
 
     Contains the following keys:
     * FileHeader
     * ImageSegments
     * GraphicSegments
     * TextSegments
-    * DESegments
-    * RESegments
+    * DataExtensionSegments
+    * ReservedExtensionSegments
 
     """
 
     def __init__(self):
         super().__init__("Root")
-        self.append(
+        self._append(
             FileHeader(
                 "FileHeader",
                 numi_callback=self._numi_handler,
@@ -2611,116 +2645,118 @@ class Nitf(Group):
                 lren_callback=self._lren_handler,
             )
         )
-        self.append(
+        self._append(
             SegmentList(
                 "ImageSegments",
                 lambda n: ImageSegment(n, None),
                 maximum=999,
             )
         )
-        self.append(
+        self._append(
             SegmentList(
                 "GraphicSegments",
                 lambda n: GraphicSegment(n, None, None),
                 maximum=999,
             )
         )
-        self.append(
+        self._append(
             SegmentList(
                 "TextSegments",
                 lambda n: TextSegment(n, None, None),
                 maximum=999,
             )
         )
-        self.append(
+        self._append(
             SegmentList(
-                "DESegments",
-                lambda n: DESegment(n, None),
+                "DataExtensionSegments",
+                lambda n: DataExtensionSegment(n, None),
                 maximum=999,
             )
         )
-        self.append(
+        self._append(
             SegmentList(
-                "RESegments",
-                lambda n: RESegment(n, None, None),
+                "ReservedExtensionSegments",
+                lambda n: ReservedExtensionSegment(n, None, None),
                 maximum=999,
             )
         )
 
     def _numi_handler(self, field):
-        self["ImageSegments"].set_size(field.value)
+        self["ImageSegments"].set_count(field.value)
 
     def _lin_handler(self, field):
         idx = int(field.name.removeprefix("LI")) - 1
         self["ImageSegments"][idx]["Data"].size = field.value
 
     def _nums_handler(self, field):
-        self["GraphicSegments"].set_size(field.value)
+        self["GraphicSegments"].set_count(field.value)
 
     def _lsshn_handler(self, field):
         # this callback should be removed if the Graphic Subheader is implemented
         idx = int(field.name.removeprefix("LSSH")) - 1
-        self["GraphicSegments"][idx]["SubHeader"].size = field.value
+        self["GraphicSegments"][idx]["subheader"].size = field.value
 
     def _lsn_handler(self, field):
         idx = int(field.name.removeprefix("LS")) - 1
         self["GraphicSegments"][idx]["Data"].size = field.value
 
     def _numt_handler(self, field):
-        self["TextSegments"].set_size(field.value)
+        self["TextSegments"].set_count(field.value)
 
     def _ltshn_handler(self, field):
         # this callback should be removed if the Text Subheader is implemented
         idx = int(field.name.removeprefix("LTSH")) - 1
-        self["TextSegments"][idx]["SubHeader"].size = field.value
+        self["TextSegments"][idx]["subheader"].size = field.value
 
     def _ltn_handler(self, field):
         idx = int(field.name.removeprefix("LT")) - 1
         self["TextSegments"][idx]["Data"].size = field.value
 
     def _numdes_handler(self, field):
-        self["DESegments"].set_size(field.value)
+        self["DataExtensionSegments"].set_count(field.value)
 
     def _ldn_handler(self, field):
         idx = int(field.name.removeprefix("LD")) - 1
-        self["DESegments"][idx]["DESDATA"].size = field.value
+        self["DataExtensionSegments"][idx]["DESDATA"].size = field.value
 
     def _numres_handler(self, field):
-        self["RESegments"].set_size(field.value)
+        self["ReservedExtensionSegments"].set_count(field.value)
 
     def _lreshn_handler(self, field):
         # this callback should be removed if the Reserved Subheader is implemented
         idx = int(field.name.removeprefix("LRESH")) - 1
-        self["RESegments"][idx]["SubHeader"].size = field.value
+        self["ReservedExtensionSegments"][idx]["subheader"].size = field.value
 
     def _lren_handler(self, field):
         idx = int(field.name.removeprefix("LRE")) - 1
-        self["RESegments"][idx]["Data"].size = field.value
+        self["ReservedExtensionSegments"][idx]["RESDATA"].size = field.value
 
     def update_lengths(self):
         """Compute and set the segment lengths"""
-        self["FileHeader"]["FL"].value = self.length()
-        self["FileHeader"]["HL"].value = self["FileHeader"].length()
+        self["FileHeader"]["FL"].value = self.get_size()
+        self["FileHeader"]["HL"].value = self["FileHeader"].get_size()
 
         for idx, seg in enumerate(self["ImageSegments"]):
-            self["FileHeader"][f"LISH{idx + 1:03d}"].value = seg["SubHeader"].length()
+            self["FileHeader"][f"LISH{idx + 1:03d}"].value = seg["subheader"].get_size()
             self["FileHeader"][f"LI{idx + 1:03d}"].value = seg["Data"].size
 
         for idx, seg in enumerate(self["GraphicSegments"]):
-            self["FileHeader"][f"LSSH{idx + 1:03d}"].value = seg["SubHeader"].length()
+            self["FileHeader"][f"LSSH{idx + 1:03d}"].value = seg["subheader"].get_size()
             self["FileHeader"][f"LS{idx + 1:03d}"].value = seg["Data"].size
 
         for idx, seg in enumerate(self["TextSegments"]):
-            self["FileHeader"][f"LTSH{idx + 1:03d}"].value = seg["SubHeader"].length()
+            self["FileHeader"][f"LTSH{idx + 1:03d}"].value = seg["subheader"].get_size()
             self["FileHeader"][f"LT{idx + 1:03d}"].value = seg["Data"].size
 
-        for idx, seg in enumerate(self["DESegments"]):
-            self["FileHeader"][f"LDSH{idx + 1:03d}"].value = seg["SubHeader"].length()
+        for idx, seg in enumerate(self["DataExtensionSegments"]):
+            self["FileHeader"][f"LDSH{idx + 1:03d}"].value = seg["subheader"].get_size()
             self["FileHeader"][f"LD{idx + 1:03d}"].value = seg["DESDATA"].size
 
-        for idx, seg in enumerate(self["RESegments"]):
-            self["FileHeader"][f"LRESH{idx + 1:03d}"].value = seg["SubHeader"].length()
-            self["FileHeader"][f"LRE{idx + 1:03d}"].value = seg["Data"].size
+        for idx, seg in enumerate(self["ReservedExtensionSegments"]):
+            self["FileHeader"][f"LRESH{idx + 1:03d}"].value = seg[
+                "subheader"
+            ].get_size()
+            self["FileHeader"][f"LRE{idx + 1:03d}"].value = seg["RESDATA"].size
 
     def update_fdt(self):
         """Set the FDT field to the current time"""
@@ -2739,11 +2775,11 @@ class Nitf(Group):
 
         level_origin = {0: np.array([0, 0])}
         for imseg in self["ImageSegments"]:
-            alvl = imseg["SubHeader"]["IALVL"].value
-            dlvl = imseg["SubHeader"]["IDLVL"].value
-            loc = imseg["SubHeader"]["ILOC"].value
+            alvl = imseg["subheader"]["IALVL"].value
+            dlvl = imseg["subheader"]["IDLVL"].value
+            loc = imseg["subheader"]["ILOC"].value
             size = np.array(
-                [imseg["SubHeader"]["NROWS"].value, imseg["SubHeader"]["NCOLS"].value]
+                [imseg["subheader"]["NROWS"].value, imseg["subheader"]["NCOLS"].value]
             )
             level_origin[dlvl] = level_origin[alvl] + loc
 
@@ -2751,7 +2787,7 @@ class Nitf(Group):
             max_ccs = np.maximum(max_ccs, level_origin[dlvl] + size)
 
         if len(self["GraphicSegments"]):
-            logger.warning("CLEVEL of NITFs with Graphic Segments is not supported")
+            logger.warning("CLEVEL of BIIFs with Graphic Segments is not supported")
 
         max_extent = max(np.asarray(max_ccs) - min_ccs)
         if max_extent <= 2047:
@@ -2778,8 +2814,8 @@ class Nitf(Group):
     def _clevel_image_size(self):
         clevel = 3
         for imseg in self["ImageSegments"]:
-            nrows = imseg["SubHeader"]["NROWS"].value
-            ncols = imseg["SubHeader"]["NCOLS"].value
+            nrows = imseg["subheader"]["NROWS"].value
+            ncols = imseg["subheader"]["NCOLS"].value
 
             if nrows <= 2048 and ncols <= 2048:
                 clevel = max(clevel, 3)
@@ -2794,8 +2830,8 @@ class Nitf(Group):
     def _clevel_image_blocking(self):
         clevel = 3
         for imseg in self["ImageSegments"]:
-            horiz = imseg["SubHeader"]["NPPBH"].value
-            vert = imseg["SubHeader"]["NPPBV"].value
+            horiz = imseg["subheader"]["NPPBH"].value
+            vert = imseg["subheader"]["NPPBV"].value
 
             if horiz <= 2048 and vert <= 2048:
                 clevel = max(clevel, 3)
@@ -2806,30 +2842,30 @@ class Nitf(Group):
     def _clevel_irep(self):
         clevel = 0
         for imseg in self["ImageSegments"]:
-            has_lut = bool(imseg["SubHeader"].find_all("NLUT.*"))
+            has_lut = bool(imseg["subheader"].find_all("NLUT.*"))
             num_bands = (
-                imseg["SubHeader"].get("XBANDS", imseg["SubHeader"]["NBANDS"]).value
+                imseg["subheader"].get("XBANDS", imseg["subheader"]["NBANDS"]).value
             )
             # Color (RGB) No Compression
             if (
-                imseg["SubHeader"]["IREP"].value == "RGB"
+                imseg["subheader"]["IREP"].value == "RGB"
                 and num_bands == 3
                 and not has_lut
-                and imseg["SubHeader"]["IC"].value in ("NC", "NM")
-                and imseg["SubHeader"]["IMODE"].value in ("B", "P", "R", "S")
+                and imseg["subheader"]["IC"].value in ("NC", "NM")
+                and imseg["subheader"]["IMODE"].value in ("B", "P", "R", "S")
             ):
-                if imseg["SubHeader"]["NBPP"].value == 8:
+                if imseg["subheader"]["NBPP"].value == 8:
                     clevel = max(clevel, 3)
 
-                if imseg["SubHeader"]["NBPP"].value in (8, 16, 32):
+                if imseg["subheader"]["NBPP"].value in (8, 16, 32):
                     clevel = max(clevel, 6)
 
             # Multiband (MULTI) No Compression
             if (
-                imseg["SubHeader"]["IREP"].value == "MULTI"
-                and imseg["SubHeader"]["NBPP"].value in (1, 8, 16, 32, 64)
-                and imseg["SubHeader"]["IC"].value in ("NC", "NM")
-                and imseg["SubHeader"]["IMODE"].value in ("B", "P", "R", "S")
+                imseg["subheader"]["IREP"].value == "MULTI"
+                and imseg["subheader"]["NBPP"].value in (1, 8, 16, 32, 64)
+                and imseg["subheader"]["IC"].value in ("NC", "NM")
+                and imseg["subheader"]["IMODE"].value in ("B", "P", "R", "S")
             ):
                 if 2 <= num_bands <= 9:
                     clevel = max(clevel, 3)
@@ -2842,10 +2878,10 @@ class Nitf(Group):
 
             # JPEG2000 Compression Multiband (MULTI)
             if (
-                imseg["SubHeader"]["IREP"].value == "MULTI"
-                and imseg["SubHeader"]["NBPP"].value <= 32
-                and imseg["SubHeader"]["IC"].value in ("C8", "M8")
-                and imseg["SubHeader"]["IMODE"].value == "B"
+                imseg["subheader"]["IREP"].value == "MULTI"
+                and imseg["subheader"]["NBPP"].value <= 32
+                and imseg["subheader"]["IC"].value in ("C8", "M8")
+                and imseg["subheader"]["IMODE"].value == "B"
             ):
                 if 1 <= num_bands <= 9:
                     clevel = max(clevel, 3)
@@ -2858,11 +2894,11 @@ class Nitf(Group):
 
             # Multiband (MULTI) Individual Band JPEG Compression
             if (
-                imseg["SubHeader"]["IREP"].value == "MULTI"
-                and imseg["SubHeader"]["NBPP"].value in (8, 12)
+                imseg["subheader"]["IREP"].value == "MULTI"
+                and imseg["subheader"]["NBPP"].value in (8, 12)
                 and not has_lut
-                and imseg["SubHeader"]["IC"].value in ("C3", "M3")
-                and imseg["SubHeader"]["IMODE"].value in ("B", "S")
+                and imseg["subheader"]["IC"].value in ("C3", "M3")
+                and imseg["subheader"]["IMODE"].value in ("B", "S")
             ):
                 if 2 <= num_bands <= 9:
                     clevel = max(clevel, 3)
@@ -2875,11 +2911,11 @@ class Nitf(Group):
 
             # Multiband (MULTI) Multi-Component Compression
             if (
-                imseg["SubHeader"]["IREP"].value == "MULTI"
-                and imseg["SubHeader"]["NBPP"].value in (8, 12)
+                imseg["subheader"]["IREP"].value == "MULTI"
+                and imseg["subheader"]["NBPP"].value in (8, 12)
                 and not has_lut
-                and imseg["SubHeader"]["IC"].value in ("C6", "M6")
-                and imseg["SubHeader"]["IMODE"].value in ("B", "P", "S")
+                and imseg["subheader"]["IC"].value in ("C6", "M6")
+                and imseg["subheader"]["IMODE"].value in ("B", "P", "S")
             ):
                 if 2 <= num_bands <= 9:
                     clevel = max(clevel, 3)
@@ -2892,10 +2928,10 @@ class Nitf(Group):
 
             # Matrix Data (NODISPLY)
             if (
-                imseg["SubHeader"]["IREP"].value == "NODISPLY"
-                and imseg["SubHeader"]["NBPP"].value in (8, 16, 32, 64)
+                imseg["subheader"]["IREP"].value == "NODISPLY"
+                and imseg["subheader"]["NBPP"].value in (8, 16, 32, 64)
                 and not has_lut
-                and imseg["SubHeader"]["IMODE"].value in ("B", "P", "R", "S")
+                and imseg["subheader"]["IMODE"].value in ("B", "P", "R", "S")
             ):
                 if 2 <= num_bands <= 9:
                     clevel = max(clevel, 3)
@@ -2936,11 +2972,11 @@ class Nitf(Group):
         for imseg in self["ImageSegments"]:
             # 2
             if (
-                imseg["SubHeader"]["NPPBH"].value == 0
-                or imseg["SubHeader"]["NPPBV"].value == 0
+                imseg["subheader"]["NPPBH"].value == 0
+                or imseg["subheader"]["NPPBV"].value == 0
             ):
                 return 9
-            total_num_bands += imseg.get("XBANDS", imseg["SubHeader"]["NBANDS"]).value
+            total_num_bands += imseg.get("XBANDS", imseg["subheader"]["NBANDS"]).value
 
         # 3
         if total_num_bands > 999:
@@ -2966,13 +3002,13 @@ class Nitf(Group):
             return 9
 
         # 8
-        if len(self["DESegments"]) > 100:
+        if len(self["DataExtensionSegments"]) > 100:
             return 9
 
         return 0
 
     def update_clevel(self):
-        """Compute and update the CELVEL field.  See MIL-STD-2500C Table A-10"""
+        """Compute and update the CLEVEL field.  See JBP-2024.1 Table G-1"""
         clevel = 3
         helpers = [attrib for attrib in dir(self) if attrib.startswith("_clevel_")]
         for helper in helpers:
@@ -2982,15 +3018,15 @@ class Nitf(Group):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Display NITF Header content")
-    parser.add_argument("filename", type=pathlib.Path, help="Path to NITF file")
+    parser = argparse.ArgumentParser(description="Display BIIF Header content")
+    parser.add_argument("filename", type=pathlib.Path, help="Path to BIIF file")
     config = parser.parse_args(args)
 
-    ntf = Nitf()
+    bf = Biif()
     with config.filename.open("rb") as fd:
-        ntf.load(fd)
+        bf.load(fd)
 
-    ntf.print()
+    bf.print()
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 dynamic = ["version"]
 requires-python = ">= 3.9"
 name = "pybiif"
-description = "Library for reading and writing Basic Image Interchange Format (BIIF) files"
+description = "Library for reading and writing Joint BIIF Profile (JBP) files (NITF and NSIF)"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -37,3 +37,6 @@ dev = [
 
 [project.urls]
 Repository = "https://github.com/ValkyrieSystems/pybiif"
+
+[project.scripts]
+biifinfo = "pybiif._io:main"

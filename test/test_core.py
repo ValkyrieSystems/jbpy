@@ -7,15 +7,15 @@ import tempfile
 
 import pytest
 
-import pybiif._nitf_io
+import pybiif.core
 
 
 def test_string_ascii_conv(caplog):
-    conv = pybiif._nitf_io.StringAscii("test", 5)
+    conv = pybiif.core.StringAscii("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -30,11 +30,11 @@ def test_string_ascii_conv(caplog):
 
 
 def test_string_iso_conv(caplog):
-    conv = pybiif._nitf_io.StringISO8859_1("test", 5)
+    conv = pybiif.core.StringISO8859_1("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -47,11 +47,11 @@ def test_string_iso_conv(caplog):
 
 
 def test_string_utf8_conv(caplog):
-    conv = pybiif._nitf_io.StringUtf8("test", 5)
+    conv = pybiif.core.StringUtf8("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -64,17 +64,17 @@ def test_string_utf8_conv(caplog):
 
 
 def test_bytes_conv():
-    conv = pybiif._nitf_io.Bytes("test", 5)
+    conv = pybiif.core.Bytes("test", 5)
     assert conv.to_bytes(b"asdf") == b"asdf"
     assert conv.from_bytes(b"asdf") == b"asdf"
 
 
 def test_integer_conv(caplog):
-    conv = pybiif._nitf_io.Integer("test", 5)
+    conv = pybiif.core.Integer("test", 5)
     assert conv.to_bytes(0) == b"00000"
     assert conv.to_bytes(10) == b"00010"
     assert conv.to_bytes(-123) == b"-0123"
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         assert conv.to_bytes(123456) == b"12345"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -85,34 +85,34 @@ def test_integer_conv(caplog):
 
 
 def test_rgb_conv():
-    conv = pybiif._nitf_io.RGB("test", 3)
+    conv = pybiif.core.RGB("test", 3)
     assert conv.to_bytes((1, 2, 3)) == b"\01\02\03"
     assert conv.from_bytes(b"\01\02\03") == (1, 2, 3)
 
 
 def test_segmentlist():
-    seglist = pybiif._nitf_io.SegmentList(
-        "test", lambda n: pybiif._nitf_io.ImageSegment(n, None), minimum=2, maximum=4
+    seglist = pybiif.core.SegmentList(
+        "test", lambda n: pybiif.core.ImageSegment(n, None), minimum=2, maximum=4
     )
     assert len(seglist) == 2
-    seglist.set_size(4)
+    seglist.set_count(4)
     assert len(seglist) == 4
-    assert isinstance(seglist[-1], pybiif._nitf_io.ImageSegment)
+    assert isinstance(seglist[-1], pybiif.core.ImageSegment)
     with pytest.raises(ValueError):
-        seglist.set_size(5)
+        seglist.set_count(5)
     with pytest.raises(ValueError):
-        seglist.set_size(1)
+        seglist.set_count(1)
 
 
 def test_range_any():
-    check = pybiif._nitf_io.AnyRange()
+    check = pybiif.core.AnyRange()
     assert check.isvalid(1)
     assert check.isvalid("")
     assert check.isvalid("a")
 
 
 def test_range_minmax():
-    check = pybiif._nitf_io.MinMax(-10, 10)
+    check = pybiif.core.MinMax(-10, 10)
     assert not check.isvalid(-10.1)
     assert check.isvalid(-10)
     assert check.isvalid(0)
@@ -121,7 +121,7 @@ def test_range_minmax():
 
 
 def test_range_regex():
-    check = pybiif._nitf_io.Regex("[abc]+")
+    check = pybiif.core.Regex("[abc]+")
     assert check.isvalid("aa")
     assert check.isvalid("cb")
     assert not check.isvalid("ad")
@@ -129,23 +129,23 @@ def test_range_regex():
 
 
 def test_range_constant():
-    check = pybiif._nitf_io.Constant("foobar")
+    check = pybiif.core.Constant("foobar")
     assert check.isvalid("foobar")
     assert not check.isvalid("foobar1")
     assert not check.isvalid("1foobar")
 
 
 def test_range_enum():
-    check = pybiif._nitf_io.Enum(["A", "B"])
+    check = pybiif.core.Enum(["A", "B"])
     assert check.isvalid("A")
     assert check.isvalid("B")
     assert not check.isvalid("C")
 
 
 def test_range_anyof():
-    check = pybiif._nitf_io.AnyOf(
-        pybiif._nitf_io.Constant("A"),
-        pybiif._nitf_io.Constant("B"),
+    check = pybiif.core.AnyOf(
+        pybiif.core.Constant("A"),
+        pybiif.core.Constant("B"),
     )
     assert check.isvalid("A")
     assert check.isvalid("B")
@@ -153,15 +153,15 @@ def test_range_anyof():
 
 
 def test_range_not():
-    check = pybiif._nitf_io.Not(
-        pybiif._nitf_io.Constant("A"),
+    check = pybiif.core.Not(
+        pybiif.core.Constant("A"),
     )
     assert not check.isvalid("A")
     assert check.isvalid("B")
 
 
 def emtpy_nitf():
-    ntf = pybiif._nitf_io.Nitf()
+    ntf = pybiif.core.Biif()
     ntf["FileHeader"]["OSTAID"].value = "Here"
     ntf["FileHeader"]["FSCLAS"].value = "U"
     return ntf
@@ -170,27 +170,27 @@ def emtpy_nitf():
 def add_imseg(ntf):
     ntf["FileHeader"]["NUMI"].value += 1
     idx = ntf["FileHeader"]["NUMI"].value - 1
-    ntf["ImageSegments"][idx]["SubHeader"]["IID1"].value = "Unit Test"
-    ntf["ImageSegments"][idx]["SubHeader"]["IDATIM"].value = datetime.datetime(
+    ntf["ImageSegments"][idx]["subheader"]["IID1"].value = "Unit Test"
+    ntf["ImageSegments"][idx]["subheader"]["IDATIM"].value = datetime.datetime(
         1955, 11, 5
     ).strftime("%Y%m%d%H%M%S")
-    ntf["ImageSegments"][idx]["SubHeader"]["ISCLAS"].value = "U"
-    ntf["ImageSegments"][idx]["SubHeader"]["PVTYPE"].value = "INT"
-    ntf["ImageSegments"][idx]["SubHeader"]["IREP"].value = "MONO"
-    ntf["ImageSegments"][idx]["SubHeader"]["ICAT"].value = "SAR"
-    ntf["ImageSegments"][idx]["SubHeader"]["ABPP"].value = 8
-    ntf["ImageSegments"][idx]["SubHeader"]["IC"].value = "NC"
-    ntf["ImageSegments"][idx]["SubHeader"]["NBANDS"].value = 1
-    ntf["ImageSegments"][idx]["SubHeader"]["IREPBAND00001"].value = "M"
-    ntf["ImageSegments"][idx]["SubHeader"]["IMODE"].value = "B"
-    ntf["ImageSegments"][idx]["SubHeader"]["NBPR"].value = 1
-    ntf["ImageSegments"][idx]["SubHeader"]["NBPC"].value = 1
-    ntf["ImageSegments"][idx]["SubHeader"]["NPPBH"].value = 30
-    ntf["ImageSegments"][idx]["SubHeader"]["NPPBV"].value = 20
-    ntf["ImageSegments"][idx]["SubHeader"]["NROWS"].value = 20
-    ntf["ImageSegments"][idx]["SubHeader"]["NCOLS"].value = 30
-    ntf["ImageSegments"][idx]["SubHeader"]["NBPP"].value = 8
-    ntf["ImageSegments"][idx]["SubHeader"]["ILOC"].value = (0, 0)
+    ntf["ImageSegments"][idx]["subheader"]["ISCLAS"].value = "U"
+    ntf["ImageSegments"][idx]["subheader"]["PVTYPE"].value = "INT"
+    ntf["ImageSegments"][idx]["subheader"]["IREP"].value = "MONO"
+    ntf["ImageSegments"][idx]["subheader"]["ICAT"].value = "SAR"
+    ntf["ImageSegments"][idx]["subheader"]["ABPP"].value = 8
+    ntf["ImageSegments"][idx]["subheader"]["IC"].value = "NC"
+    ntf["ImageSegments"][idx]["subheader"]["NBANDS"].value = 1
+    ntf["ImageSegments"][idx]["subheader"]["IREPBAND00001"].value = "M"
+    ntf["ImageSegments"][idx]["subheader"]["IMODE"].value = "B"
+    ntf["ImageSegments"][idx]["subheader"]["NBPR"].value = 1
+    ntf["ImageSegments"][idx]["subheader"]["NBPC"].value = 1
+    ntf["ImageSegments"][idx]["subheader"]["NPPBH"].value = 30
+    ntf["ImageSegments"][idx]["subheader"]["NPPBV"].value = 20
+    ntf["ImageSegments"][idx]["subheader"]["NROWS"].value = 20
+    ntf["ImageSegments"][idx]["subheader"]["NCOLS"].value = 30
+    ntf["ImageSegments"][idx]["subheader"]["NBPP"].value = 8
+    ntf["ImageSegments"][idx]["subheader"]["ILOC"].value = (0, 0)
     ntf["ImageSegments"][idx]["Data"].size = 20 * 30
     return ntf
 
@@ -204,7 +204,7 @@ def check_roundtrip(ntf):
         second = tmpdir / "copy.ntf"
         with orig.open("wb") as fd:
             ntf.dump(fd)
-        ntf2 = pybiif._nitf_io.Nitf()
+        ntf2 = pybiif.core.Biif()
         with orig.open("rb") as fd:
             ntf2.load(fd)
         assert ntf == ntf2
@@ -253,7 +253,7 @@ def test_fileheader(capsys):
     header["LSSH001"].value = 300
     assert len(ntf["GraphicSegments"]) == 1
     # leave 1 segment to test placeholder logic
-    ntf["GraphicSegments"][0]["SubHeader"].value = b"\0" * 300
+    ntf["GraphicSegments"][0]["subheader"].value = b"\0" * 300
 
     assert len(ntf["TextSegments"]) == 0
     header["NUMT"].value = 2
@@ -263,27 +263,27 @@ def test_fileheader(capsys):
     header["LTSH001"].value = 300
     assert len(ntf["TextSegments"]) == 1
     # leave 1 segment to test placeholder logic
-    ntf["TextSegments"][0]["SubHeader"].value = b"\0" * 300
+    ntf["TextSegments"][0]["subheader"].value = b"\0" * 300
 
-    assert len(ntf["DESegments"]) == 0
+    assert len(ntf["DataExtensionSegments"]) == 0
     header["NUMDES"].value = 2
-    assert len(ntf["DESegments"]) == 2
+    assert len(ntf["DataExtensionSegments"]) == 2
     header["NUMDES"].value = 1
     header["LD001"].value = 10
-    assert len(ntf["DESegments"]) == 1
+    assert len(ntf["DataExtensionSegments"]) == 1
     header["NUMDES"].value = 0
-    assert len(ntf["DESegments"]) == 0
+    assert len(ntf["DataExtensionSegments"]) == 0
     assert "LD001" not in header
     assert "LDSH001" not in header
 
-    assert len(ntf["RESegments"]) == 0
+    assert len(ntf["ReservedExtensionSegments"]) == 0
     header["NUMRES"].value = 2
-    assert len(ntf["RESegments"]) == 2
+    assert len(ntf["ReservedExtensionSegments"]) == 2
     header["NUMRES"].value = 1
     header["LRE001"].value = 10
     header["LRESH001"].value = 300
-    assert len(ntf["RESegments"]) == 1
-    ntf["RESegments"][0]["SubHeader"].value = b"\0" * 300
+    assert len(ntf["ReservedExtensionSegments"]) == 1
+    ntf["ReservedExtensionSegments"][0]["subheader"].value = b"\0" * 300
     # leave 1 segment to test placeholder logic
 
     ntf.finalize()
@@ -291,7 +291,7 @@ def test_fileheader(capsys):
     captured = capsys.readouterr()
     assert "GraphicSegment" in captured.out
     assert "TextSegment" in captured.out
-    assert "RESegment" in captured.out
+    assert "ReservedExtensionSegment" in captured.out
 
 
 def test_imseg():
@@ -301,7 +301,7 @@ def test_imseg():
     add_imseg(ntf)
     assert ntf["FileHeader"]["NUMI"].value == 2
     check_roundtrip(ntf)
-    subheader = ntf["ImageSegments"][0]["SubHeader"]
+    subheader = ntf["ImageSegments"][0]["subheader"]
     assert "IGEOLO" not in subheader
     subheader["ICORDS"].value = "G"
     assert "IGEOLO" in subheader
@@ -357,13 +357,13 @@ def test_imseg():
 def test_deseg():
     ntf = emtpy_nitf()
     assert ntf["FileHeader"]["NUMDES"].value == 0
-    assert len(ntf["DESegments"]) == 0
+    assert len(ntf["DataExtensionSegments"]) == 0
     ntf["FileHeader"]["NUMDES"].value += 1
-    assert len(ntf["DESegments"]) == 1
+    assert len(ntf["DataExtensionSegments"]) == 1
 
-    ntf["DESegments"][0]["DESDATA"].size = 10
+    ntf["DataExtensionSegments"][0]["DESDATA"].size = 10
 
-    subheader = ntf["DESegments"][0]["SubHeader"]
+    subheader = ntf["DataExtensionSegments"][0]["subheader"]
     subheader["DESID"].value = "mydesid"
     subheader["DESVER"].value = 1
     subheader["DESCLAS"].value = "U"
@@ -375,12 +375,12 @@ def test_deseg():
     check_roundtrip(ntf)
 
     # Test XML_DATA_CONTENT (see STDI-0002 Volume 2 Appendix F)
-    assert isinstance(subheader["DESSHF"], pybiif._nitf_io.Field)
+    assert isinstance(subheader["DESSHF"], pybiif.core.Field)
     subheader["DESID"].value = "XML_DATA_CONTENT"
     subheader["DESVER"].value = 1
 
     subheader["DESSHL"].value = 0
-    assert isinstance(subheader["DESSHF"], pybiif._nitf_io.XmlDataContentSubheader)
+    assert isinstance(subheader["DESSHF"], pybiif.core.XmlDataContentSubheader)
     assert len(subheader["DESSHF"]) == 0
 
     with pytest.raises(ValueError):
@@ -414,13 +414,13 @@ def test_field(caplog):
     def callback(fld):
         callbackinfo["called"] = True
 
-    field = pybiif._nitf_io.Field(
+    field = pybiif.core.Field(
         "MyField",
         "Description",
         5,
-        pybiif._nitf_io.BCSN,
-        pybiif._nitf_io.MinMax(10, 100),
-        pybiif._nitf_io.Integer,
+        pybiif.core.BCSN,
+        pybiif.core.MinMax(10, 100),
+        pybiif.core.Integer,
         setter_callback=callback,
     )
     assert not callbackinfo["called"]
@@ -437,37 +437,37 @@ def test_field(caplog):
         stream = io.BytesIO(b"abcdefghi")
         field.load(stream)
 
-    field = pybiif._nitf_io.Field(
+    field = pybiif.core.Field(
         "MyField",
         "Description",
         5,
-        pybiif._nitf_io.BCSN,
-        pybiif._nitf_io.AnyRange(),
-        pybiif._nitf_io.StringUtf8,
+        pybiif.core.BCSN,
+        pybiif.core.AnyRange(),
+        pybiif.core.StringUtf8,
     )
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         stream = io.BytesIO(b"abcdefghi")
         field.load(stream)
         assert len(caplog.records) == 1
         assert "Invalid" in caplog.records[0].message
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
         field.value = "abc"
         assert len(caplog.records) == 1
         assert "Invalid" in caplog.records[0].message
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif._nitf_io"):
-        pybiif._nitf_io.Field(
+    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+        pybiif.core.Field(
             "MyField",
             "Description",
             5,
-            pybiif._nitf_io.BCSN,
-            pybiif._nitf_io.AnyRange(),
-            pybiif._nitf_io.StringUtf8,
+            pybiif.core.BCSN,
+            pybiif.core.AnyRange(),
+            pybiif.core.StringUtf8,
             default="abc",
         )
         assert len(caplog.records) == 1
@@ -475,7 +475,7 @@ def test_field(caplog):
 
 
 def test_binaryplaceholder():
-    bp = pybiif._nitf_io.BinaryPlaceholder("placeholder", 10)
+    bp = pybiif.core.BinaryPlaceholder("placeholder", 10)
     initial_data = b"0123456789"
     stream = io.BytesIO(initial_data)
     start = stream.tell()
@@ -488,36 +488,36 @@ def test_binaryplaceholder():
 def test_clevel():
     ntf = emtpy_nitf()
     ntf["FileHeader"]["NUMI"].value = 2
-    ntf["ImageSegments"][0]["SubHeader"]["IDLVL"].value = 1
-    ntf["ImageSegments"][0]["SubHeader"]["IALVL"].value = 0
-    ntf["ImageSegments"][0]["SubHeader"]["ILOC"].value = (500, 500)
-    ntf["ImageSegments"][0]["SubHeader"]["NROWS"].value = 1000
-    ntf["ImageSegments"][0]["SubHeader"]["NCOLS"].value = 1000
+    ntf["ImageSegments"][0]["subheader"]["IDLVL"].value = 1
+    ntf["ImageSegments"][0]["subheader"]["IALVL"].value = 0
+    ntf["ImageSegments"][0]["subheader"]["ILOC"].value = (500, 500)
+    ntf["ImageSegments"][0]["subheader"]["NROWS"].value = 1000
+    ntf["ImageSegments"][0]["subheader"]["NCOLS"].value = 1000
 
-    ntf["ImageSegments"][1]["SubHeader"]["IDLVL"].value = 2
-    ntf["ImageSegments"][1]["SubHeader"]["IALVL"].value = 1
-    ntf["ImageSegments"][1]["SubHeader"]["ILOC"].value = (0, 0)
-    ntf["ImageSegments"][1]["SubHeader"]["NROWS"].value = 1
-    ntf["ImageSegments"][1]["SubHeader"]["NCOLS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["IDLVL"].value = 2
+    ntf["ImageSegments"][1]["subheader"]["IALVL"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["ILOC"].value = (0, 0)
+    ntf["ImageSegments"][1]["subheader"]["NROWS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["NCOLS"].value = 1
     assert ntf._clevel_ccs_extent() == 3
     assert ntf._clevel_image_size() == 3
-    ntf["ImageSegments"][1]["SubHeader"]["ILOC"].value = (2000, 2000)
+    ntf["ImageSegments"][1]["subheader"]["ILOC"].value = (2000, 2000)
     assert ntf._clevel_ccs_extent() == 5
     assert ntf._clevel_image_size() == 3
-    ntf["ImageSegments"][1]["SubHeader"]["NROWS"].value = 1
-    ntf["ImageSegments"][1]["SubHeader"]["NCOLS"].value = 1000
+    ntf["ImageSegments"][1]["subheader"]["NROWS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["NCOLS"].value = 1000
     assert ntf._clevel_ccs_extent() == 5
     assert ntf._clevel_image_size() == 3
-    ntf["ImageSegments"][1]["SubHeader"]["NROWS"].value = 8000
-    ntf["ImageSegments"][1]["SubHeader"]["NCOLS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["NROWS"].value = 8000
+    ntf["ImageSegments"][1]["subheader"]["NCOLS"].value = 1
     assert ntf._clevel_ccs_extent() == 6
     assert ntf._clevel_image_size() == 5
-    ntf["ImageSegments"][1]["SubHeader"]["NROWS"].value = 1
-    ntf["ImageSegments"][1]["SubHeader"]["NCOLS"].value = 65000
+    ntf["ImageSegments"][1]["subheader"]["NROWS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["NCOLS"].value = 65000
     assert ntf._clevel_ccs_extent() == 7
     assert ntf._clevel_image_size() == 6
-    ntf["ImageSegments"][1]["SubHeader"]["NROWS"].value = 1
-    ntf["ImageSegments"][1]["SubHeader"]["NCOLS"].value = 99_999_998
+    ntf["ImageSegments"][1]["subheader"]["NROWS"].value = 1
+    ntf["ImageSegments"][1]["subheader"]["NCOLS"].value = 99_999_998
     assert ntf._clevel_ccs_extent() == 9
     assert ntf._clevel_image_size() == 7
 
@@ -527,11 +527,11 @@ def test_clevel():
     ntf["FileHeader"]["FL"].value = 99_999_999_999
     assert ntf._clevel_file_size() == 9
 
-    ntf["ImageSegments"][0]["SubHeader"]["NPPBH"].value = 0
-    ntf["ImageSegments"][0]["SubHeader"]["NPPBV"].value = 0
-    ntf["ImageSegments"][1]["SubHeader"]["NPPBH"].value = 0
-    ntf["ImageSegments"][1]["SubHeader"]["NPPBV"].value = 0
+    ntf["ImageSegments"][0]["subheader"]["NPPBH"].value = 0
+    ntf["ImageSegments"][0]["subheader"]["NPPBV"].value = 0
+    ntf["ImageSegments"][1]["subheader"]["NPPBH"].value = 0
+    ntf["ImageSegments"][1]["subheader"]["NPPBV"].value = 0
     assert ntf._clevel_image_blocking() == 3
-    ntf["ImageSegments"][1]["SubHeader"]["NPPBH"].value = 3000
-    ntf["ImageSegments"][1]["SubHeader"]["NPPBV"].value = 3000
+    ntf["ImageSegments"][1]["subheader"]["NPPBH"].value = 3000
+    ntf["ImageSegments"][1]["subheader"]["NPPBV"].value = 3000
     assert ntf._clevel_image_blocking() == 5
