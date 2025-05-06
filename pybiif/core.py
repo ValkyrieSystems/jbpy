@@ -20,8 +20,6 @@ import os
 import pathlib
 import re
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
@@ -2770,26 +2768,31 @@ class Biif(Group):
         self.update_clevel()  # must be after lengths
 
     def _clevel_ccs_extent(self):
-        min_ccs = (0, 0)
-        max_ccs = (0, 0)
+        min_ccs_row = min_ccs_col = 0
+        max_ccs_row = max_ccs_col = 0
 
-        level_origin = {0: np.array([0, 0])}
+        level_origin = {0: {"row": 0, "col": 0}}
         for imseg in self["ImageSegments"]:
             alvl = imseg["subheader"]["IALVL"].value
             dlvl = imseg["subheader"]["IDLVL"].value
-            loc = imseg["subheader"]["ILOC"].value
-            size = np.array(
-                [imseg["subheader"]["NROWS"].value, imseg["subheader"]["NCOLS"].value]
-            )
-            level_origin[dlvl] = level_origin[alvl] + loc
+            iloc_row, iloc_col = imseg["subheader"]["ILOC"].value
+            nrows = imseg["subheader"]["NROWS"].value
+            ncols = imseg["subheader"]["NCOLS"].value
+            level_origin[dlvl] = {
+                "row": level_origin[alvl]["row"] + iloc_row,
+                "col": level_origin[alvl]["col"] + iloc_col,
+            }
 
-            min_ccs = np.minimum(min_ccs, level_origin[dlvl])
-            max_ccs = np.maximum(max_ccs, level_origin[dlvl] + size)
+            min_ccs_row = min(min_ccs_row, level_origin[dlvl]["row"])
+            min_ccs_col = min(min_ccs_col, level_origin[dlvl]["col"])
+
+            max_ccs_row = max(max_ccs_row, level_origin[dlvl]["row"] + nrows)
+            max_ccs_col = max(max_ccs_col, level_origin[dlvl]["col"] + ncols)
 
         if len(self["GraphicSegments"]):
             logger.warning("CLEVEL of BIIFs with Graphic Segments is not supported")
 
-        max_extent = max(np.asarray(max_ccs) - min_ccs)
+        max_extent = max(max_ccs_row - min_ccs_row, max_ccs_col - min_ccs_col)
         if max_extent <= 2047:
             return 3
         if max_extent <= 8191:
