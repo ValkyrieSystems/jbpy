@@ -12,23 +12,42 @@ Setting the value of fields is done using the `value` property.  `value` uses co
 types (int, str, etc...) and serializes to the BIIF format behind the scenes.
 """
 
+import abc
 import argparse
 import collections.abc
+from collections.abc import Callable, Iterable
 import datetime
 import logging
 import os
 import pathlib
 import re
+from typing import Any, Iterator, Self
 
 logger = logging.getLogger(__name__)
+
+
+class BinaryFile_R:
+    """Binary file-like object supporting reading"""
+
+    @abc.abstractmethod
+    def seek(self, __offset: int, __whence: int = ...) -> int: ...
+    @abc.abstractmethod
+    def read(self, __length: int = ...) -> bytes: ...
+
+
+class BinaryFile_RW(BinaryFile_R):
+    """Binary file-like object supporting reading and writing"""
+
+    @abc.abstractmethod
+    def write(self, __data: bytes) -> int: ...
 
 
 class PythonConverter:
     """Class for converting between BIIF field bytes and python types"""
 
-    def __init__(self, name, size):
-        self.name = name
-        self.size = size
+    def __init__(self, name: str, size: int):
+        self.name: str = name
+        self.size: int = size
 
     def to_bytes(self, decoded_value):
         encoded = self.to_bytes_impl(decoded_value)
@@ -41,33 +60,33 @@ class PythonConverter:
             )
         return truncated
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: Any) -> bytes:
         raise NotImplementedError()
 
-    def from_bytes(self, encoded_value):
+    def from_bytes(self, encoded_value: bytes) -> Any:
         return self.from_bytes_impl(encoded_value)
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value) -> Any:
         raise NotImplementedError()
 
 
 class StringUtf8(PythonConverter):
     """Convert to/from str"""
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: str) -> bytes:
         return str.ljust(decoded_value, self.size).encode()
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value: bytes) -> str:
         return encoded_value.decode().rstrip(" ")
 
 
 class StringAscii(PythonConverter):
     """Convert to/from str"""
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: str) -> bytes:
         return str.ljust(decoded_value, self.size).encode("ascii")
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value: bytes) -> str:
         return encoded_value.decode("ascii").rstrip(" ")
 
 
@@ -80,23 +99,23 @@ class StringISO8859_1(PythonConverter):  # noqa: N801
     happens to match ISO 8859 part 1.
     """
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: str) -> bytes:
         return str.ljust(decoded_value, self.size).encode("iso8859_1")
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value: bytes) -> str:
         return encoded_value.decode("iso8859_1").rstrip(" ")
 
 
-def int_pair(length):
+def int_pair(length: int):
     """returns Python Converter class for handling 2 concatenated ints to/from a tuple"""
 
     class IntPair(PythonConverter):
-        def to_bytes_impl(self, decoded_value):
+        def to_bytes_impl(self, decoded_value: tuple[int, int]) -> bytes:
             return (
                 f"{decoded_value[0]:0{length}d}{decoded_value[1]:0{length}d}".encode()
             )
 
-        def from_bytes_impl(self, encoded_value):
+        def from_bytes_impl(self, encoded_value: bytes) -> tuple[int, int]:
             return (int(encoded_value[0:length]), int(encoded_value[length:]))
 
     return IntPair
@@ -105,28 +124,28 @@ def int_pair(length):
 class Bytes(PythonConverter):
     """Convert to/from bytes"""
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: bytes) -> bytes:
         return decoded_value
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value: bytes) -> bytes:
         return encoded_value
 
 
 class Integer(PythonConverter):
     """convert to/from int"""
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: int) -> bytes:
         decoded_value = int(decoded_value)
         return f"{decoded_value:0{self.size}}".encode()
 
-    def from_bytes_impl(self, encoded_value):
+    def from_bytes_impl(self, encoded_value: bytes) -> int:
         return int(encoded_value)
 
 
 class RGB(PythonConverter):
     """convert to/from three int tuple"""
 
-    def to_bytes_impl(self, decoded_value):
+    def to_bytes_impl(self, decoded_value: tuple[int, int, int]) -> bytes:
         assert self.size == 3
         return (
             decoded_value[0].to_bytes(1, "big")
@@ -134,8 +153,8 @@ class RGB(PythonConverter):
             + decoded_value[2].to_bytes(1, "big")
         )
 
-    def from_bytes_impl(self, encoded_value):
-        return tuple(encoded_value)
+    def from_bytes_impl(self, encoded_value: bytes) -> tuple[int, int, int]:
+        return (encoded_value[0], encoded_value[1], encoded_value[2])
 
 
 # Character sets
@@ -160,14 +179,14 @@ U8 = "\x00-\xff"
 class RangeCheck:
     """Base Class for checking the range of a BIIF field"""
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: Any) -> bool:
         raise NotImplementedError()
 
 
 class AnyRange(RangeCheck):
     """Field has no range restrictions"""
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: Any) -> bool:
         return True
 
 
@@ -183,11 +202,11 @@ class MinMax(RangeCheck):
 
     """
 
-    def __init__(self, minimum, maximum):
+    def __init__(self, minimum: int | None, maximum: int | None):
         self.minimum = minimum
         self.maximum = maximum
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: int) -> bool:
         valid = True
         if self.minimum is not None:
             valid &= decoded_value >= self.minimum
@@ -199,30 +218,30 @@ class MinMax(RangeCheck):
 class Regex(RangeCheck):
     """Field value is restricted by a regex"""
 
-    def __init__(self, pattern):
+    def __init__(self, pattern: str):
         self.pattern = pattern
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: str) -> bool:
         return bool(re.fullmatch(self.pattern, decoded_value))
 
 
 class Constant(RangeCheck):
     """Field value must be a constant"""
 
-    def __init__(self, const):
+    def __init__(self, const: str | int):
         self.const = const
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: str | int) -> bool:
         return decoded_value == self.const
 
 
 class Enum(RangeCheck):
     """Field value must match one value of an Enumeration"""
 
-    def __init__(self, enumeration):
+    def __init__(self, enumeration: Iterable):
         self.enumeration = set(enumeration)
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: Any) -> bool:
         return decoded_value in self.enumeration
 
 
@@ -236,10 +255,10 @@ class AnyOf(RangeCheck):
 
     """
 
-    def __init__(self, *ranges):
+    def __init__(self, *ranges: RangeCheck):
         self.ranges = ranges
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: Any) -> bool:
         checks = [check.isvalid(decoded_value) for check in self.ranges]
         return any(checks)
 
@@ -247,10 +266,10 @@ class AnyOf(RangeCheck):
 class Not(RangeCheck):
     """Negate a range check"""
 
-    def __init__(self, range_check):
+    def __init__(self, range_check: RangeCheck):
         self.range_check = range_check
 
-    def isvalid(self, decoded_value):
+    def isvalid(self, decoded_value: Any) -> bool:
         return not self.range_check.isvalid(decoded_value)
 
 
@@ -263,13 +282,13 @@ PATTERN_HH = "([0-1][0-9]|2[0-3])"  # hh
 PATTERN_MM = "([0-5][0-9])"  # mm
 PATTERN_SS = "([0-5][0-9]|60)"  # ss
 DATETIME_REGEX = Regex(
-    PATTERN_CC
-    + PATTERN_YY
-    + PATTERN_MM
-    + PATTERN_DD
-    + PATTERN_HH
-    + PATTERN_MM
-    + PATTERN_SS
+    f"({PATTERN_CC}|--)"
+    + f"({PATTERN_YY}|--)"
+    + f"({PATTERN_MM}|--)"
+    + f"({PATTERN_DD}|--)"
+    + f"({PATTERN_HH}|--)"
+    + f"({PATTERN_MM}|--)"
+    + f"({PATTERN_SS}|--)"
 )
 DATE_REGEX = Regex(PATTERN_CC + PATTERN_YY + PATTERN_MM + PATTERN_DD)
 
@@ -277,16 +296,20 @@ DATE_REGEX = Regex(PATTERN_CC + PATTERN_YY + PATTERN_MM + PATTERN_DD)
 class BiifIOComponent:
     """Base Class for read/writable BIIF components"""
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         self.name = name
-        self._parent = None
+        self._parent: ComponentCollection | None = None
 
-    def load(self, fd):
+    def load(self, fd: BinaryFile_R) -> Self:
         """Read from a file descriptor
         Args
         ----
         fd: file-like
-            File-like object to read from
+            Binary file-like object to read from
+
+        Returns
+        -------
+        A reference to self
 
         """
         try:
@@ -296,15 +319,19 @@ class BiifIOComponent:
             logger.error(f"Failed to read {self.name}")
             raise
 
-    def dump(self, fd, seek_first=False):
+    def dump(self, fd: BinaryFile_RW, seek_first: bool = False) -> int:
         """Write to a file descriptor
         Args
         ----
         fd: file-like
-            File-like object to write to
+            Binary file-like object to write to
         seek_first: bool
             Seek to the components offset before writing
 
+        Returns
+        -------
+        int
+            Number of bytes written
         """
         if seek_first:
             fd.seek(self.get_offset(), os.SEEK_SET)
@@ -315,24 +342,24 @@ class BiifIOComponent:
             logger.error(f"Failed to wite {self.name}")
             raise
 
-    def _load_impl(self, fd):
+    def _load_impl(self, fd: BinaryFile_R) -> None:
         raise NotImplementedError()
 
-    def _dump_impl(self, fd):
+    def _dump_impl(self, fd: BinaryFile_RW) -> int:
         raise NotImplementedError()
 
-    def get_offset(self):
+    def get_offset(self) -> int:
         """Return the offset from the start of the file to this component"""
         offset = 0
-        if self._parent:
+        if self._parent is not None:
             offset = self._parent.get_offset_of(self)
         return offset
 
-    def get_size(self):
+    def get_size(self) -> int:
         """Size of this component in bytes"""
         raise NotImplementedError()
 
-    def print(self):
+    def print(self) -> None:
         """Print information about the component to stdout"""
         raise NotImplementedError()
 
@@ -374,15 +401,15 @@ class Field(BiifIOComponent):
 
     def __init__(
         self,
-        name,
-        description,
-        size,
-        charset,
-        range,
-        converter_class,
+        name: str,
+        description: str,
+        size: int,
+        charset: str | None,
+        range: RangeCheck,
+        converter_class: type[PythonConverter],
         *,
-        default=None,
-        setter_callback=None,
+        default: Any,
+        setter_callback: Callable | None = None,
     ):
         super().__init__(name)
         self.description = description
@@ -393,12 +420,12 @@ class Field(BiifIOComponent):
         self._converter = converter_class(name, size)
         self._setter_callback = setter_callback
 
-        self._encoded_value = None
-
-        if default is not None:
-            self.encoded_value = self._converter.to_bytes(default)
+        self.encoded_value = self._converter.to_bytes(default)
 
     def __eq__(self, other):
+        if not isinstance(other, type(self)):
+            return NotImplemented
+
         return (
             self.name == other.name
             and self.description == other.description
@@ -406,7 +433,7 @@ class Field(BiifIOComponent):
             and self.encoded_value == other.encoded_value
         )
 
-    def isvalid(self):
+    def isvalid(self) -> bool:
         """Check if the field value matches the required character set and range restrictions"""
         valid_charset = (
             True
@@ -418,22 +445,22 @@ class Field(BiifIOComponent):
         return valid_charset and valid_range
 
     @property
-    def encoded_value(self):
+    def encoded_value(self) -> bytes:
         return self._encoded_value
 
     @encoded_value.setter
-    def encoded_value(self, value):
+    def encoded_value(self, value: bytes):
         self._encoded_value = value
 
         if not self.isvalid():
-            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value}")
+            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value!r}")
 
     @property
-    def size(self):
+    def size(self) -> int:
         return self._size
 
     @size.setter
-    def size(self, value):
+    def size(self, value: int):
         old_value = self._size
         self._size = value
         self._converter = self._converter_class(self.name, self._size)
@@ -442,31 +469,31 @@ class Field(BiifIOComponent):
             self._setter_callback(self)
 
     @property
-    def value(self):
+    def value(self) -> Any:
         return self._converter.from_bytes(self.encoded_value)
 
     @value.setter
-    def value(self, val):
+    def value(self, val: Any):
         self.encoded_value = self._converter.to_bytes(val)
 
         if self._setter_callback:
             self._setter_callback(self)
 
-    def _load_impl(self, fd):
+    def _load_impl(self, fd: BinaryFile_R) -> None:
         self.encoded_value = fd.read(self.size)
 
         if self._setter_callback:
             self._setter_callback(self)
 
-    def _dump_impl(self, fd):
+    def _dump_impl(self, fd: BinaryFile_RW) -> int:
         return fd.write(self.encoded_value)
 
-    def get_size(self):
+    def get_size(self) -> int:
         return self.size
 
-    def print(self):
+    def print(self) -> None:
         print(
-            f"{self.name:15}{self.size:11} @ {self.get_offset():11} {self.encoded_value}"
+            f"{self.name:15}{self.size:11} @ {self.get_offset():11} {self.encoded_value!r}"
         )
 
 
@@ -477,43 +504,50 @@ class BinaryPlaceholder(BiifIOComponent):
 
     """
 
-    def __init__(self, name, size):
+    def __init__(self, name: str, size: int):
         super().__init__(name)
         self._size = size
 
     def __eq__(self, other):
+        if not isinstance(other, type(self)):
+            return NotImplemented
+
         return self.name == other.name and self._size == other._size
 
     @property
-    def size(self):
+    def size(self) -> int:
         return self._size
 
     @size.setter
-    def size(self, value):
+    def size(self, value: int):
         self._size = value
 
-    def _load_impl(self, fd):
+    def _load_impl(self, fd: BinaryFile_R):
         fd.seek(self.size, os.SEEK_CUR)
 
-    def _dump_impl(self, fd):
+    def _dump_impl(self, fd: BinaryFile_RW) -> int:
         if self.size:
             fd.seek(self.size, os.SEEK_CUR)
-
-    def get_size(self):
         return self.size
 
-    def print(self):
+    def get_size(self) -> int:
+        return self.size
+
+    def print(self) -> None:
         print(f"{self.name:15}{self.size:11} @ {self.get_offset():11} <Binary>")
 
 
 class ComponentCollection(BiifIOComponent):
     """Base class for components with child sub-components"""
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         super().__init__(name)
-        self._children = []
+        self._children: list[BiifIOComponent] = []
 
     def __eq__(self, other):
+        if not isinstance(other, type(self)):
+            return NotImplemented
+
         return len(self._children) == len(other._children) and all(
             [left == right for left, right in zip(self._children, other._children)]
         )
@@ -521,25 +555,27 @@ class ComponentCollection(BiifIOComponent):
     def __len__(self):
         return len(self._children)
 
-    def get_size(self):
+    def get_size(self) -> int:
         size = 0
         for child in self._children:
             size += child.get_size()
         return size
 
-    def _load_impl(self, fd):
+    def _load_impl(self, fd: BinaryFile_R) -> None:
         for child in self._children:
             child.load(fd)
 
-    def _dump_impl(self, fd):
+    def _dump_impl(self, fd: BinaryFile_RW) -> int:
+        written = 0
         for child in self._children:
-            child.dump(fd)
+            written += child.dump(fd)
+        return written
 
-    def _append(self, field):
+    def _append(self, field: BiifIOComponent) -> None:
         field._parent = self
         self._children.append(field)
 
-    def get_offset_of(self, child_obj):
+    def get_offset_of(self, child_obj: BiifIOComponent) -> int:
         offset = self.get_offset()
 
         for child in self._children:
@@ -550,7 +586,7 @@ class ComponentCollection(BiifIOComponent):
         else:
             raise ValueError(f"Could not find {child_obj.name}")
 
-    def print(self):
+    def print(self) -> None:
         for child in self._children:
             child.print()
 
@@ -568,15 +604,14 @@ class Group(ComponentCollection, collections.abc.Mapping):
 
     def __init__(self, name):
         super().__init__(name)
-        self._children = []
 
-    def _child_names(self):
+    def _child_names(self) -> list[str]:
         return [child.name for child in self._children]
 
     def __iter__(self):
         return iter(self._child_names)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str):
         try:
             index = self._index(key)
         except ValueError:
@@ -584,13 +619,15 @@ class Group(ComponentCollection, collections.abc.Mapping):
 
         return self._children[index]
 
-    def _insert_after(self, existing, field):
+    def _insert_after(
+        self, existing: BiifIOComponent, field: BiifIOComponent
+    ) -> BiifIOComponent:
         insert_pos = self._children.index(existing) + 1
         self._children.insert(insert_pos, field)
         field._parent = self
         return field
 
-    def find_all(self, pattern):
+    def find_all(self, pattern: str) -> Iterator[BiifIOComponent]:
         """Find child components with names matching a regex pattern
         Args
         ----
@@ -605,14 +642,14 @@ class Group(ComponentCollection, collections.abc.Mapping):
             if re.fullmatch(pattern, child.name):
                 yield child
 
-    def _remove_all(self, pattern):
+    def _remove_all(self, pattern: str) -> None:
         for child in self.find_all(pattern):
             self._children.remove(child)
 
-    def _index(self, name):
+    def _index(self, name: str) -> int:
         return self._child_names().index(name)
 
-    def print(self):
+    def print(self) -> None:
         for child in self._children:
             child.print()
 
@@ -620,18 +657,19 @@ class Group(ComponentCollection, collections.abc.Mapping):
 class SegmentList(ComponentCollection, collections.abc.Sequence):
     """A sequence of BIIF segments"""
 
-    def __init__(self, name, field_creator, minimum=0, maximum=1):
+    def __init__(
+        self, name: str, field_creator: Callable, minimum: int = 0, maximum: int = 1
+    ):
         super().__init__(name)
         self.field_creator = field_creator
         self.minimum = minimum
         self.maximum = maximum
-        self._children = []
         self.set_count(self.minimum)
 
     def __getitem__(self, idx):
         return self._children[idx]
 
-    def set_count(self, size):
+    def set_count(self, size: int) -> None:
         if not self.minimum <= size <= self.maximum:
             raise ValueError(f"Invalid {size=}")
         for idx in range(len(self._children), size):
@@ -684,20 +722,20 @@ class FileHeader(Group):
 
     def __init__(
         self,
-        name,
-        numi_callback=None,
-        lin_callback=None,
-        nums_callback=None,
-        lsshn_callback=None,
-        lsn_callback=None,
-        numt_callback=None,
-        ltshn_callback=None,
-        ltn_callback=None,
-        numdes_callback=None,
-        ldn_callback=None,
-        numres_callback=None,
-        lreshn_callback=None,
-        lren_callback=None,
+        name: str,
+        numi_callback: Callable | None = None,
+        lin_callback: Callable | None = None,
+        nums_callback: Callable | None = None,
+        lsshn_callback: Callable | None = None,
+        lsn_callback: Callable | None = None,
+        numt_callback: Callable | None = None,
+        ltshn_callback: Callable | None = None,
+        ltn_callback: Callable | None = None,
+        numdes_callback: Callable | None = None,
+        ldn_callback: Callable | None = None,
+        numres_callback: Callable | None = None,
+        lreshn_callback: Callable | None = None,
+        lren_callback: Callable | None = None,
     ):
         super().__init__(name)
         self.numi_callback = numi_callback
@@ -738,7 +776,15 @@ class FileHeader(Group):
             )
         )
         self._append(
-            Field("CLEVEL", "Complexity Level", 2, BCSN_PI, MinMax(1, 99), Integer)
+            Field(
+                "CLEVEL",
+                "Complexity Level",
+                2,
+                BCSN_PI,
+                MinMax(1, 99),
+                Integer,
+                default=99,
+            )
         )
         self._append(
             Field(
@@ -759,10 +805,19 @@ class FileHeader(Group):
                 BCSA,
                 Not(Constant("")),
                 StringAscii,
+                default="unknown",
             )
         )
         self._append(
-            Field("FDT", "File Date and Time", 14, BCSN_I, DATETIME_REGEX, StringAscii)
+            Field(
+                "FDT",
+                "File Date and Time",
+                14,
+                BCSN_I,
+                DATETIME_REGEX,
+                StringAscii,
+                default="-" * 14,
+            )
         )
         self._append(
             Field(
@@ -783,6 +838,7 @@ class FileHeader(Group):
                 ECSA,
                 Enum(["T", "S", "C", "R", "U"]),
                 StringISO8859_1,
+                default="U",
             )
         )
         self._append(
@@ -1004,7 +1060,13 @@ class FileHeader(Group):
         )
         self._append(
             Field(
-                "FL", "File Length", 12, BCSN_PI, MinMax(388, 999_999_999_998), Integer
+                "FL",
+                "File Length",
+                12,
+                BCSN_PI,
+                MinMax(388, 999_999_999_998),
+                Integer,
+                default=388,
             )
         )
         self._append(
@@ -1015,6 +1077,7 @@ class FileHeader(Group):
                 BCSN_PI,
                 MinMax(388, 999_999),
                 Integer,
+                default=388,
             )
         )
         self._append(
@@ -1113,11 +1176,11 @@ class FileHeader(Group):
             )
         )
 
-    def _numi_handler(self, field):
+    def _numi_handler(self, field: Field) -> None:
         """Handle NUMI value change"""
         self._remove_all("LISH\\d+")
         self._remove_all("LI\\d+")
-        after = field
+        after: BiifIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1128,6 +1191,7 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(439, 999_999),
                     Integer,
+                    default=439,
                 ),
             )
             after = self._insert_after(
@@ -1140,20 +1204,21 @@ class FileHeader(Group):
                     MinMax(1, 10**10 - 1),
                     Integer,
                     setter_callback=self._lin_handler,
+                    default=1,
                 ),
             )
         if self.numi_callback:
             self.numi_callback(field)
 
-    def _lin_handler(self, field):
+    def _lin_handler(self, field: Field) -> None:
         """Handle LIN value change"""
         if self.lin_callback:
             self.lin_callback(field)
 
-    def _nums_handler(self, field):
+    def _nums_handler(self, field: Field) -> None:
         self._remove_all("LSSH\\d+")
         self._remove_all("LS\\d+")
-        after = field
+        after: BiifIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1165,6 +1230,7 @@ class FileHeader(Group):
                     MinMax(258, 999_999),
                     Integer,
                     setter_callback=self._lsshn_handler,
+                    default=258,
                 ),
             )
             after = self._insert_after(
@@ -1177,24 +1243,25 @@ class FileHeader(Group):
                     MinMax(1, 10**10 - 1),
                     Integer,
                     setter_callback=self._lsn_handler,
+                    default=1,
                 ),
             )
 
         if self.nums_callback:
             self.nums_callback(field)
 
-    def _lsshn_handler(self, field):
+    def _lsshn_handler(self, field: Field) -> None:
         if self.lsshn_callback:
             self.lsshn_callback(field)
 
-    def _lsn_handler(self, field):
+    def _lsn_handler(self, field: Field) -> None:
         if self.lsn_callback:
             self.lsn_callback(field)
 
-    def _numt_handler(self, field):
+    def _numt_handler(self, field: Field) -> None:
         self._remove_all("LTSH\\d+")
         self._remove_all("LT\\d+")
-        after = field
+        after: BiifIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1206,6 +1273,7 @@ class FileHeader(Group):
                     MinMax(282, 999_999),
                     Integer,
                     setter_callback=self._ltshn_handler,
+                    default=282,
                 ),
             )
             after = self._insert_after(
@@ -1218,24 +1286,25 @@ class FileHeader(Group):
                     MinMax(1, 99_999),
                     Integer,
                     setter_callback=self._ltn_handler,
+                    default=1,
                 ),
             )
 
         if self.numt_callback:
             self.numt_callback(field)
 
-    def _ltshn_handler(self, field):
+    def _ltshn_handler(self, field: Field) -> None:
         if self.ltshn_callback:
             self.ltshn_callback(field)
 
-    def _ltn_handler(self, field):
+    def _ltn_handler(self, field: Field) -> None:
         if self.ltn_callback:
             self.ltn_callback(field)
 
-    def _numdes_handler(self, field):
+    def _numdes_handler(self, field: Field) -> None:
         self._remove_all("LDSH\\d+")
         self._remove_all("LD\\d+")
-        after = field
+        after: BiifIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1246,6 +1315,7 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(200, 999_999),
                     Integer,
+                    default=200,
                 ),
             )
             after = self._insert_after(
@@ -1258,20 +1328,21 @@ class FileHeader(Group):
                     MinMax(1, 10**9 - 1),
                     Integer,
                     setter_callback=self._ldn_handler,
+                    default=1,
                 ),
             )
 
         if self.numdes_callback:
             self.numdes_callback(field)
 
-    def _ldn_handler(self, field):
+    def _ldn_handler(self, field: Field) -> None:
         if self.ldn_callback:
             self.ldn_callback(field)
 
-    def _numres_handler(self, field):
+    def _numres_handler(self, field: Field) -> None:
         self._remove_all("LRESH\\d+")
         self._remove_all("LRE\\d+")
-        after = field
+        after: BiifIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1282,6 +1353,7 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(200, 999_999),
                     Integer,
+                    default=200,
                     setter_callback=self._lreshn_handler,
                 ),
             )
@@ -1294,6 +1366,7 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(1, 10**7 - 1),
                     Integer,
+                    default=1,
                     setter_callback=self._lren_handler,
                 ),
             )
@@ -1301,18 +1374,18 @@ class FileHeader(Group):
         if self.numres_callback:
             self.numres_callback(field)
 
-    def _lreshn_handler(self, field):
+    def _lreshn_handler(self, field: Field) -> None:
         if self.lreshn_callback:
             self.lreshn_callback(field)
 
-    def _lren_handler(self, field):
+    def _lren_handler(self, field: Field) -> None:
         if self.lren_callback:
             self.lren_callback(field)
 
-    def _udhdl_handler(self, field):
+    def _udhdl_handler(self, field: Field) -> None:
         self._remove_all("UDHOFL")
         self._remove_all("UDHD")
-        after = field
+        after: BiifIOComponent = field
         if field.value:
             after = self._insert_after(
                 after,
@@ -1335,13 +1408,14 @@ class FileHeader(Group):
                     None,
                     AnyRange(),
                     Bytes,
+                    default=b"",
                 ),
             )
 
-    def _xhdl_handler(self, field):
+    def _xhdl_handler(self, field: Field) -> None:
         self._remove_all("XHDLOFL")
         self._remove_all("XHD")
-        after = field
+        after: BiifIOComponent = field
         if field.value:
             after = self._insert_after(
                 after,
@@ -1364,6 +1438,7 @@ class FileHeader(Group):
                     None,
                     AnyRange(),
                     Bytes,
+                    default=b"",
                 ),
             )
 
@@ -1418,7 +1493,7 @@ class ImageSubheader(Group):
 
     """
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         super().__init__(name)
 
         self._append(
@@ -1433,11 +1508,25 @@ class ImageSubheader(Group):
             )
         )
         self._append(
-            Field("IID1", "Image Identifier 1", 10, BCSA, AnyRange(), StringAscii)
+            Field(
+                "IID1",
+                "Image Identifier 1",
+                10,
+                BCSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            )
         )
         self._append(
             Field(
-                "IDATIM", "Image Date and Time", 14, BCSN, DATETIME_REGEX, StringAscii
+                "IDATIM",
+                "Image Date and Time",
+                14,
+                BCSN,
+                DATETIME_REGEX,
+                StringAscii,
+                default="-" * 14,
             )
         )
         self._append(
@@ -1470,6 +1559,7 @@ class ImageSubheader(Group):
                 ECSA,
                 Enum(["T", "S", "C", "R", "U"]),
                 StringISO8859_1,
+                default="U",
             )
         )
         self._append(
@@ -1659,6 +1749,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(1, None),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -1669,6 +1760,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(1, None),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -1679,6 +1771,7 @@ class ImageSubheader(Group):
                 BCSA,
                 Enum(["INT", "B", "SI", "R", "C"]),
                 StringAscii,
+                default="INT",
             )
         )
         self._append(
@@ -1701,6 +1794,7 @@ class ImageSubheader(Group):
                     ]
                 ),
                 StringAscii,
+                default="MONO",
             )
         )
         self._append(
@@ -1722,6 +1816,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(1, 96),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -1790,6 +1885,7 @@ class ImageSubheader(Group):
                 ),
                 StringAscii,
                 setter_callback=self._ic_handler,
+                default="NC",
             )
         )
         # COMRAT
@@ -1802,6 +1898,7 @@ class ImageSubheader(Group):
                 AnyRange(),
                 Integer,
                 setter_callback=self._nbands_handler,
+                default=1,
             )
         )
         # XBANDS
@@ -1819,12 +1916,24 @@ class ImageSubheader(Group):
         )
         self._append(
             Field(
-                "IMODE", "Image Mode", 1, BCSA, Enum(["B", "P", "R", "S"]), StringAscii
+                "IMODE",
+                "Image Mode",
+                1,
+                BCSA,
+                Enum(["B", "P", "R", "S"]),
+                StringAscii,
+                default="B",
             )
         )
         self._append(
             Field(
-                "NBPR", "Number of Blocks Per Row", 4, BCSN_PI, MinMax(1, None), Integer
+                "NBPR",
+                "Number of Blocks Per Row",
+                4,
+                BCSN_PI,
+                MinMax(1, None),
+                Integer,
+                default=1,
             )
         )
         self._append(
@@ -1835,6 +1944,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(1, None),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -1845,6 +1955,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(0, 8192),
                 Integer,
+                default=0,
             )
         )
         self._append(
@@ -1855,6 +1966,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(0, 8192),
                 Integer,
+                default=0,
             )
         )
         self._append(
@@ -1865,6 +1977,7 @@ class ImageSubheader(Group):
                 BCSN_PI,
                 MinMax(1, 96),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -1936,7 +2049,7 @@ class ImageSubheader(Group):
             )
         )
 
-    def _icords_handler(self, field):
+    def _icords_handler(self, field: Field) -> None:
         self._remove_all("IGEOLO")
         if field.value:
             self._insert_after(
@@ -1952,7 +2065,7 @@ class ImageSubheader(Group):
                 ),
             )
 
-    def _nicom_handler(self, field):
+    def _nicom_handler(self, field: Field) -> None:
         self._remove_all("ICOM\\d+")
         after = self["NICOM"]
         for idx in range(1, field.value + 1):
@@ -1965,20 +2078,27 @@ class ImageSubheader(Group):
                     ECSA,
                     AnyRange(),
                     StringISO8859_1,
+                    default="",
                 ),
             )
 
-    def _ic_handler(self, field):
+    def _ic_handler(self, field: Field) -> None:
         self._remove_all("COMRAT")
         if field.value not in ("NC", "NM"):
             self._insert_after(
                 self["IC"],
                 Field(
-                    "COMRAT", "Compression Rate Code", 4, BCSA, AnyRange(), StringAscii
+                    "COMRAT",
+                    "Compression Rate Code",
+                    4,
+                    BCSA,
+                    AnyRange(),
+                    StringAscii,
+                    default="",
                 ),
             )
 
-    def _nbands_handler(self, field):
+    def _nbands_handler(self, field: Field) -> None:
         self._remove_all("XBANDS")
         if field.value == 0:
             self._insert_after(
@@ -1990,15 +2110,16 @@ class ImageSubheader(Group):
                     BCSN_PI,
                     MinMax(10, None),
                     Integer,
+                    default=10,
                     setter_callback=self._xbands_handler,
                 ),
             )
         self._set_num_band_groups(field.value)
 
-    def _xbands_handler(self, field):
+    def _xbands_handler(self, field: Field) -> None:
         self._set_num_band_groups(field.value)
 
-    def _set_num_band_groups(self, count):
+    def _set_num_band_groups(self, count: int) -> None:
         self._remove_all("IREPBAND\\d+")
         self._remove_all("ISUBCAT\\d+")
         self._remove_all("IFC\\d+")
@@ -2071,14 +2192,20 @@ class ImageSubheader(Group):
                 ),
             )
 
-    def _udidl_handler(self, field):
+    def _udidl_handler(self, field: Field) -> None:
         self._remove_all("UDOFL")
         self._remove_all("UDID")
         if field.value > 0:
             after = self._insert_after(
                 field,
                 Field(
-                    "UDOFL", "User Defined Overflow", 3, BCSN_PI, AnyRange(), Integer
+                    "UDOFL",
+                    "User Defined Overflow",
+                    3,
+                    BCSN_PI,
+                    AnyRange(),
+                    Integer,
+                    default=0,
                 ),
             )
             self._insert_after(
@@ -2090,10 +2217,11 @@ class ImageSubheader(Group):
                     None,
                     AnyRange(),
                     Bytes,
+                    default=b"",
                 ),
             )
 
-    def _ixshdl_handler(self, field):
+    def _ixshdl_handler(self, field: Field) -> None:
         self._remove_all("IXSOFL")
         self._remove_all("IXSHD")
         if field.value > 0:
@@ -2106,6 +2234,7 @@ class ImageSubheader(Group):
                     BCSN_PI,
                     AnyRange(),
                     Integer,
+                    default=0,
                 ),
             )
             self._insert_after(
@@ -2117,10 +2246,11 @@ class ImageSubheader(Group):
                     None,
                     AnyRange(),
                     Bytes,
+                    default=b"",
                 ),
             )
 
-    def _nluts_handler(self, field):
+    def _nluts_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("NLUTS"))
         self._remove_all(f"NELUT{idx:05d}\\d+")
         self._remove_all(f"LUTD{idx:05d}\\d+")
@@ -2134,6 +2264,7 @@ class ImageSubheader(Group):
                     BCSN_PI,
                     MinMax(1, 65536),
                     Integer,
+                    default=1,
                     setter_callback=self._nelut_handler,
                 ),
             )
@@ -2143,71 +2274,97 @@ class ImageSubheader(Group):
                     Field(
                         f"LUTD{idx:05d}{lutidx}",
                         "nth Image Band, mth LUT",
-                        None,
+                        1,
                         None,
                         AnyRange(),
                         Bytes,
+                        default=b"",
                     ),
                 )
 
-    def _nelut_handler(self, field):
+    def _nelut_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("NELUT"))
         for lutd in self.find_all(f"LUTD{idx:05d}\\d+"):
+            assert isinstance(lutd, Field)
             lutd.size = field.value
 
 
 class ImageSegment(Group):
-    def __init__(self, name, data_size):
+    def __init__(self, name: str, data_size: int):
         super().__init__(name)
         self._append(ImageSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self):
+    def print(self) -> None:
         print(f"# ImageSegment {self.name}")
         super().print()
 
 
 class GraphicSegment(Group):
-    def __init__(self, name, subheader_size, data_size):
+    def __init__(self, name: str, subheader_size: int, data_size: int):
         super().__init__(name)
         self._append(
-            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+            Field(
+                "subheader",
+                "Placeholder",
+                subheader_size,
+                None,
+                AnyRange(),
+                Bytes,
+                default=b"",
+            )
         )
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self):
+    def print(self) -> None:
         print(f"# GraphicSegment {self.name}")
         super().print()
 
 
 class TextSegment(Group):
-    def __init__(self, name, subheader_size, data_size):
+    def __init__(self, name: str, subheader_size: int, data_size: int):
         super().__init__(name)
         self._append(
-            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+            Field(
+                "subheader",
+                "Placeholder",
+                subheader_size,
+                None,
+                AnyRange(),
+                Bytes,
+                default=b"",
+            )
         )
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self):
+    def print(self) -> None:
         print(f"# TextSegment {self.name}")
         super().print()
 
 
 class ReservedExtensionSegment(Group):
-    def __init__(self, name, subheader_size, data_size):
+    def __init__(self, name: str, subheader_size: int, data_size: int):
         super().__init__(name)
         self._append(
-            Field("subheader", "Placeholder", subheader_size, None, AnyRange(), Bytes)
+            Field(
+                "subheader",
+                "Placeholder",
+                subheader_size,
+                None,
+                AnyRange(),
+                Bytes,
+                default=b"",
+            )
         )
         self._append(BinaryPlaceholder("RESDATA", data_size))
 
-    def print(self):
+    def print(self) -> None:
         print(f"# ReservedExtensionSegment {self.name}")
         super().print()
 
 
 class DataExtensionSubheader(Group):
-    def __init__(self, name):
+    def __init__(self, name: str):
         super().__init__(name)
         self._append(
             Field(
@@ -2229,6 +2386,7 @@ class DataExtensionSubheader(Group):
                 AnyRange(),
                 StringAscii,
                 setter_callback=self._desid_handler,
+                default="",
             )
         )
         self._append(
@@ -2239,6 +2397,7 @@ class DataExtensionSubheader(Group):
                 BCSN_PI,
                 MinMax(1, None),
                 Integer,
+                default=1,
             )
         )
         self._append(
@@ -2249,6 +2408,7 @@ class DataExtensionSubheader(Group):
                 ECSA,
                 Enum(["T", "S", "C", "R", "U"]),
                 StringISO8859_1,
+                default="U",
             )
         )
         self._append(
@@ -2427,11 +2587,12 @@ class DataExtensionSubheader(Group):
                 AnyRange(),
                 Integer,
                 setter_callback=self._desshl_handler,
+                default=0,
             )
         )
         # DESSHF
 
-    def _desid_handler(self, field):
+    def _desid_handler(self, field: Field) -> None:
         self._remove_all("DESOFLW")
         self._remove_all("DESITEM")
         if field.value == "TRE_OVERFLOW":
@@ -2444,6 +2605,7 @@ class DataExtensionSubheader(Group):
                     BCSA,
                     Enum(["XHD", "IXSHD", "SXSHD", "TXSHD", "UDHD", "UDID"]),
                     StringAscii,
+                    default="",
                 ),
             )
             self._insert_after(
@@ -2455,27 +2617,28 @@ class DataExtensionSubheader(Group):
                     BCSN_PI,
                     AnyRange(),
                     Integer,
+                    default=0,
                 ),
             )
 
-    def _desshl_handler(self, field):
+    def _desshl_handler(self, field: Field) -> None:
         self._remove_all("DESSHF")
         self._insert_after(field, DESSHF_Factory(self["DESID"], self["DESVER"], field))
 
 
 class DataExtensionSegment(Group):
-    def __init__(self, name, data_size):
+    def __init__(self, name: str, data_size: int):
         super().__init__(name)
         self._append(DataExtensionSubheader("subheader"))
         self._append(BinaryPlaceholder("DESDATA", data_size))
 
-    def print(self):
+    def print(self) -> None:
         print(f"# DESegment {self.name}")
         super().print()
 
 
 class XmlDataContentSubheader(Group):
-    def __init__(self, name, size):
+    def __init__(self, name: str, size: int):
         super().__init__(name)
         self.all_fields = [
             Field(
@@ -2487,8 +2650,18 @@ class XmlDataContentSubheader(Group):
                 Integer,
                 default=0,
             ),
-            Field("DESSHFT", "XML File Type", 8, BCSA, AnyRange(), StringAscii),
-            Field("DESSHDT", "Date and Time", 20, BCSA, AnyRange(), StringAscii),
+            Field(
+                "DESSHFT", "XML File Type", 8, BCSA, AnyRange(), StringAscii, default=""
+            ),
+            Field(
+                "DESSHDT",
+                "Date and Time",
+                20,
+                BCSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            ),
             Field(
                 "DESSHRP",
                 "Responsible Party",
@@ -2516,7 +2689,15 @@ class XmlDataContentSubheader(Group):
                 StringAscii,
                 default="",
             ),
-            Field("DESSHSD", "Specification Date", 20, BCSA, AnyRange(), StringAscii),
+            Field(
+                "DESSHSD",
+                "Specification Date",
+                20,
+                BCSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            ),
             Field(
                 "DESSHTN",
                 "Target Namespace",
@@ -2581,7 +2762,9 @@ class XmlDataContentSubheader(Group):
                 raise ValueError(f"Invalid XML_DATA_CONTENT header {size=}")
 
 
-def DESSHF_Factory(desid_field, desver_field, desshl_field):  # noqa: N802
+def DESSHF_Factory(
+    desid_field: Field, desver_field: Field, desshl_field: Field
+) -> BiifIOComponent:  # noqa: N802
     """Create the DESSHF field based on the DES type
 
     Args
@@ -2607,6 +2790,7 @@ def DESSHF_Factory(desid_field, desver_field, desshl_field):  # noqa: N802
         BCSA,
         AnyRange(),
         StringAscii,
+        default="",
     )
 
 
@@ -2679,57 +2863,57 @@ class Biif(Group):
             )
         )
 
-    def _numi_handler(self, field):
+    def _numi_handler(self, field: Field) -> None:
         self["ImageSegments"].set_count(field.value)
 
-    def _lin_handler(self, field):
+    def _lin_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LI")) - 1
         self["ImageSegments"][idx]["Data"].size = field.value
 
-    def _nums_handler(self, field):
+    def _nums_handler(self, field: Field) -> None:
         self["GraphicSegments"].set_count(field.value)
 
-    def _lsshn_handler(self, field):
+    def _lsshn_handler(self, field: Field) -> None:
         # this callback should be removed if the Graphic Subheader is implemented
         idx = int(field.name.removeprefix("LSSH")) - 1
         self["GraphicSegments"][idx]["subheader"].size = field.value
 
-    def _lsn_handler(self, field):
+    def _lsn_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LS")) - 1
         self["GraphicSegments"][idx]["Data"].size = field.value
 
-    def _numt_handler(self, field):
+    def _numt_handler(self, field: Field) -> None:
         self["TextSegments"].set_count(field.value)
 
-    def _ltshn_handler(self, field):
+    def _ltshn_handler(self, field: Field) -> None:
         # this callback should be removed if the Text Subheader is implemented
         idx = int(field.name.removeprefix("LTSH")) - 1
         self["TextSegments"][idx]["subheader"].size = field.value
 
-    def _ltn_handler(self, field):
+    def _ltn_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LT")) - 1
         self["TextSegments"][idx]["Data"].size = field.value
 
-    def _numdes_handler(self, field):
+    def _numdes_handler(self, field: Field) -> None:
         self["DataExtensionSegments"].set_count(field.value)
 
-    def _ldn_handler(self, field):
+    def _ldn_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LD")) - 1
         self["DataExtensionSegments"][idx]["DESDATA"].size = field.value
 
-    def _numres_handler(self, field):
+    def _numres_handler(self, field: Field) -> None:
         self["ReservedExtensionSegments"].set_count(field.value)
 
-    def _lreshn_handler(self, field):
+    def _lreshn_handler(self, field: Field) -> None:
         # this callback should be removed if the Reserved Subheader is implemented
         idx = int(field.name.removeprefix("LRESH")) - 1
         self["ReservedExtensionSegments"][idx]["subheader"].size = field.value
 
-    def _lren_handler(self, field):
+    def _lren_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LRE")) - 1
         self["ReservedExtensionSegments"][idx]["RESDATA"].size = field.value
 
-    def update_lengths(self):
+    def update_lengths(self) -> None:
         """Compute and set the segment lengths"""
         self["FileHeader"]["FL"].value = self.get_size()
         self["FileHeader"]["HL"].value = self["FileHeader"].get_size()
@@ -2756,18 +2940,18 @@ class Biif(Group):
             ].get_size()
             self["FileHeader"][f"LRE{idx + 1:03d}"].value = seg["RESDATA"].size
 
-    def update_fdt(self):
+    def update_fdt(self) -> None:
         """Set the FDT field to the current time"""
         now = datetime.datetime.now(datetime.timezone.utc)
         self["FileHeader"]["FDT"].value = now.strftime("%Y%m%d%H%M%S")
 
-    def finalize(self):
+    def finalize(self) -> None:
         """Compute derived values such as lengths, and CLEVEL"""
         self.update_lengths()
         self.update_fdt()
         self.update_clevel()  # must be after lengths
 
-    def _clevel_ccs_extent(self):
+    def _clevel_ccs_extent(self) -> int:
         min_ccs_row = min_ccs_col = 0
         max_ccs_row = max_ccs_col = 0
 
@@ -2803,7 +2987,7 @@ class Biif(Group):
             return 7
         return 9
 
-    def _clevel_file_size(self):
+    def _clevel_file_size(self) -> int:
         if self["FileHeader"]["FL"].value < 50 * (1 << 20):
             return 3
         if self["FileHeader"]["FL"].value < 1 * (1 << 30):
@@ -2814,7 +2998,7 @@ class Biif(Group):
             return 7
         return 9
 
-    def _clevel_image_size(self):
+    def _clevel_image_size(self) -> int:
         clevel = 3
         for imseg in self["ImageSegments"]:
             nrows = imseg["subheader"]["NROWS"].value
@@ -2830,7 +3014,7 @@ class Biif(Group):
                 clevel = max(clevel, 7)
         return clevel
 
-    def _clevel_image_blocking(self):
+    def _clevel_image_blocking(self) -> int:
         clevel = 3
         for imseg in self["ImageSegments"]:
             horiz = imseg["subheader"]["NPPBH"].value
@@ -2842,7 +3026,7 @@ class Biif(Group):
                 clevel = max(clevel, 5)
         return clevel
 
-    def _clevel_irep(self):
+    def _clevel_irep(self) -> int:
         clevel = 0
         for imseg in self["ImageSegments"]:
             has_lut = bool(imseg["subheader"].find_all("NLUT.*"))
@@ -2947,14 +3131,14 @@ class Biif(Group):
 
         return clevel
 
-    def _clevel_num_imseg(self):
+    def _clevel_num_imseg(self) -> int:
         if len(self["ImageSegments"]) <= 20:
             return 3
         if 20 < len(self["ImageSegments"]) <= 100:
             return 5
         return 9
 
-    def _clevel_aggregate_size_of_graphic_segments(self):
+    def _clevel_aggregate_size_of_graphic_segments(self) -> int:
         size = 0
         for field in self["FileHeader"].find_all("LS\\d+"):
             size += field.value
@@ -2965,7 +3149,7 @@ class Biif(Group):
             return 5
         return 9
 
-    def _clevel_cl9(self):
+    def _clevel_cl9(self) -> int:
         """Explicit CLEVEL 9 checks"""
         # 1
         if self["FileHeader"]["FL"].value >= 10 * (1 << 30):
@@ -3010,7 +3194,7 @@ class Biif(Group):
 
         return 0
 
-    def update_clevel(self):
+    def update_clevel(self) -> None:
         """Compute and update the CLEVEL field.  See JBP-2024.1 Table G-1"""
         clevel = 3
         helpers = [attrib for attrib in dir(self) if attrib.startswith("_clevel_")]

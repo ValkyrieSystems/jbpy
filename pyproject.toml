@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 dynamic = ["version"]
-requires-python = ">= 3.9"
+requires-python = ">= 3.11"
 name = "pybiif"
 description = "Library for reading and writing Joint BIIF Profile (JBP) files (NITF and NSIF)"
 readme = "README.md"
@@ -20,16 +20,16 @@ authors = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
 ]
 
 [project.optional-dependencies]
 dev = [
+    "mypy",
     "ruff",
     "pytest",
 ]

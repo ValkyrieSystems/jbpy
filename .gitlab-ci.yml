@@ -3,7 +3,7 @@ stages:
   - test
   - deploy
 
-image: python:3.9
+image: python:3.11
 
 lint:
   stage: build

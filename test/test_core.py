@@ -421,6 +421,7 @@ def test_field(caplog):
         pybiif.core.BCSN,
         pybiif.core.MinMax(10, 100),
         pybiif.core.Integer,
+        default=0,
         setter_callback=callback,
     )
     assert not callbackinfo["called"]
@@ -444,6 +445,7 @@ def test_field(caplog):
         pybiif.core.BCSN,
         pybiif.core.AnyRange(),
         pybiif.core.StringUtf8,
+        default="",
     )
 
     caplog.clear()
