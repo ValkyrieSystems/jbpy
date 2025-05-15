@@ -4,3 +4,11 @@
 
 ## License
 This repository is licensed under the [MIT license](./LICENSE).
+
+## Testing
+Some tests rely on the [JITC Quick Look Test Data](https://jitc.fhu.disa.mil/projects/nitf/testdata.aspx).
+If this data is available, it can be used by setting the `PYBIIF_JITC_QUICKLOOK_DIR` environment variable.
+
+```bash
+PYBIIF_JITC_QUICKLOOK_DIR=<path> pytest
+```

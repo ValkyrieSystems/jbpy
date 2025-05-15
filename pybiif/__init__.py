@@ -1,3 +1,3 @@
-from .core import Biif
+from .core import Biif, available_tres, tre_factory
 
-__all__ = ["Biif"]
+__all__ = ["Biif", "available_tres", "tre_factory"]

@@ -221,13 +221,13 @@ def test_fileheader(capsys):
     assert "UDHOFL" not in header
     header["UDHDL"].value = 10
     assert "UDHOFL" in header
-    header["UDHD"].value = b"1234567"  # UDHDL - 3
+    header["UDHD"].append(pybiif.core.tre_factory("SECTGA"))
 
     assert "XHDLOFL" not in header
     assert "XHD" not in header
     header["XHDL"].value = 10
     assert "XHDLOFL" in header
-    header["XHD"].value = b"1234567"  # XHDL - 3
+    header["XHD"].append(pybiif.core.tre_factory("SECTGA"))
 
     check_roundtrip(ntf)
 
@@ -344,14 +344,13 @@ def test_imseg():
     subheader["UDIDL"].value = 100
     assert "UDOFL" in subheader
     assert "UDID" in subheader
-    assert subheader["UDID"].size == 100 - 3
+    len(subheader["UDID"]) == 0  # NO TREs
 
     assert "IXSOFL" not in subheader
     assert "IXSHD" not in subheader
     subheader["IXSHDL"].value = 100
     assert "IXSOFL" in subheader
     assert "IXSHD" in subheader
-    assert subheader["IXSHD"].size == 100 - 3
 
 
 def test_deseg():
@@ -537,3 +536,15 @@ def test_clevel():
     ntf["ImageSegments"][1]["subheader"]["NPPBH"].value = 3000
     ntf["ImageSegments"][1]["subheader"]["NPPBV"].value = 3000
     assert ntf._clevel_image_blocking() == 5
+
+
+def test_unknown_tre():
+    unk = pybiif.core.UnknownTre("UNK00A")
+    assert unk["TREL"].value == 0
+    assert unk["TREDATA"].size == 0
+    unk["TREL"].value = 123
+    assert unk["TREDATA"].size == 123
+
+    unk["TREDATA"].size = 456
+    unk.finalize()
+    assert unk["TREL"].value == 456

@@ -38,4 +38,7 @@ dev = [
 Repository = "https://github.com/ValkyrieSystems/pybiif"
 
 [project.scripts]
-biifinfo = "pybiif._io:main"
+biifinfo = "pybiif.core:main"
+
+[project.entry-points."pybiif.extensions.tre"]
+SECTGA = "pybiif.extensions.tre.SECTGA:SECTGA"

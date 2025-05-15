@@ -17,6 +17,7 @@ import argparse
 import collections.abc
 from collections.abc import Callable, Iterable
 import datetime
+import importlib.metadata
 import logging
 import os
 import pathlib
@@ -157,20 +158,20 @@ class RGB(PythonConverter):
         return (encoded_value[0], encoded_value[1], encoded_value[2])
 
 
-# Character sets
-# Extended Character Set (ECS) (see 5.1.7.a.2)
+# Character sets (see 4.6.3.1)
+# Extended Character Set (ECS)
 ECS = "\x20-\x7e\xa0-\xff\x0a\x0c\x0d"
-# Extended Character Set - Alphanumeric (ECS-A) (see 5.1.7.a.3)
+# Extended Character Set - Alphanumeric (ECS-A)
 ECSA = "\x20-\x7e\xa0-\xff"
-# Basic Character Set (BCS) (see 5.1.7.a.4)
+# Basic Character Set (BCS)
 BCS = "\x20-\x7e\x0a\x0c\x0d"
-# Basic Character Set - Alphanumeric (BCS-A) (see 5.1.7.a.5)
+# Basic Character Set - Alphanumeric (BCS-A)
 BCSA = "\x20-\x7e"
-# Basic Character Set - Numeric (BCS-N) (see 5.1.7.a.6)
+# Basic Character Set - Numeric (BCS-N)
 BCSN = "\x30-\x39\x2b\x2d\x2e\x2f"
-# Basic Character Set - Numeric Integer (BCS-N integer) (see 5.1.7.a.7)
+# Basic Character Set - Numeric Integer (BCS-N integer)
 BCSN_I = "\x30-\x39\x2b\x2d"
-# Basic Character Set - Numeric Positive Integer (BCS-N positive integer) (see 5.1.7.a.8)
+# Basic Character Set - Numeric Positive Integer (BCS-N positive integer)
 BCSN_PI = "\x30-\x39"
 # UTF-8
 U8 = "\x00-\xff"
@@ -363,6 +364,10 @@ class BiifIOComponent:
         """Print information about the component to stdout"""
         raise NotImplementedError()
 
+    def finalize(self):
+        """Perform any necessary final updates"""
+        pass
+
 
 class Field(BiifIOComponent):
     """BIIF Field containing a single value.
@@ -474,10 +479,13 @@ class Field(BiifIOComponent):
 
     @value.setter
     def value(self, val: Any):
+        self._set_value(val, callback=self._setter_callback)
+
+    def _set_value(self, val, callback=None):
         self.encoded_value = self._converter.to_bytes(val)
 
-        if self._setter_callback:
-            self._setter_callback(self)
+        if callback:
+            callback(self)
 
     def _load_impl(self, fd: BinaryFile_R) -> None:
         self.encoded_value = fd.read(self.size)
@@ -590,6 +598,10 @@ class ComponentCollection(BiifIOComponent):
         for child in self._children:
             child.print()
 
+    def finalize(self):
+        for child in self._children:
+            child.finalize()
+
 
 class Group(ComponentCollection, collections.abc.Mapping):
     """
@@ -609,7 +621,7 @@ class Group(ComponentCollection, collections.abc.Mapping):
         return [child.name for child in self._children]
 
     def __iter__(self):
-        return iter(self._child_names)
+        return iter(self._child_names())
 
     def __getitem__(self, key: str):
         try:
@@ -1399,18 +1411,8 @@ class FileHeader(Group):
                     default=0,
                 ),
             )
-            after = self._insert_after(
-                after,
-                Field(
-                    "UDHD",
-                    "User Defined Header Data",
-                    field.value - 3,
-                    None,
-                    AnyRange(),
-                    Bytes,
-                    default=b"",
-                ),
-            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("UDHD", field.value - 3))
 
     def _xhdl_handler(self, field: Field) -> None:
         self._remove_all("XHDLOFL")
@@ -1429,18 +1431,14 @@ class FileHeader(Group):
                     default=0,
                 ),
             )
-            after = self._insert_after(
-                after,
-                Field(
-                    "XHD",
-                    "Extended Header Data",
-                    field.value - 3,
-                    None,
-                    AnyRange(),
-                    Bytes,
-                    default=b"",
-                ),
-            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("XHD", field.value - 3))
+
+    def finalize(self) -> None:
+        super().finalize()
+        _update_tre_lengths(self, "UDHDL", "UDHOFL", "UDHD")
+        _update_tre_lengths(self, "XHDL", "XHDLOFL", "XHD")
+        # Other length fields are handled by the parent Biif class
 
 
 # Table A-2
@@ -2208,18 +2206,8 @@ class ImageSubheader(Group):
                     default=0,
                 ),
             )
-            self._insert_after(
-                after,
-                Field(
-                    "UDID",
-                    "User Defined Image Data",
-                    field.value - 3,
-                    None,
-                    AnyRange(),
-                    Bytes,
-                    default=b"",
-                ),
-            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("UDID", field.value - 3))
 
     def _ixshdl_handler(self, field: Field) -> None:
         self._remove_all("IXSOFL")
@@ -2237,18 +2225,8 @@ class ImageSubheader(Group):
                     default=0,
                 ),
             )
-            self._insert_after(
-                after,
-                Field(
-                    "IXSHD",
-                    "Image Extended Subheader Data",
-                    field.value - 3,
-                    None,
-                    AnyRange(),
-                    Bytes,
-                    default=b"",
-                ),
-            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("IXSHD", field.value - 3))
 
     def _nluts_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("NLUTS"))
@@ -2287,6 +2265,11 @@ class ImageSubheader(Group):
         for lutd in self.find_all(f"LUTD{idx:05d}\\d+"):
             assert isinstance(lutd, Field)
             lutd.size = field.value
+
+    def finalize(self) -> None:
+        super().finalize()
+        _update_tre_lengths(self, "UDIDL", "UDOFL", "UDID")
+        _update_tre_lengths(self, "IXSHDL", "IXSOFL", "IXSHD")
 
 
 class ImageSegment(Group):
@@ -2794,6 +2777,15 @@ def DESSHF_Factory(
     )
 
 
+def _update_tre_lengths(header, hdl, ofl, hd):
+    length = 0
+    if ofl in header:
+        length += 3
+    if hd in header:
+        length += header[hd].get_size()
+    header[hdl]._set_value(length)
+
+
 class Biif(Group):
     """Class representing an entire NITF/NSIF
 
@@ -2915,30 +2907,38 @@ class Biif(Group):
 
     def update_lengths(self) -> None:
         """Compute and set the segment lengths"""
-        self["FileHeader"]["FL"].value = self.get_size()
-        self["FileHeader"]["HL"].value = self["FileHeader"].get_size()
+        self["FileHeader"]["FL"]._set_value(self.get_size())
+        self["FileHeader"]["HL"]._set_value(self["FileHeader"].get_size())
 
         for idx, seg in enumerate(self["ImageSegments"]):
-            self["FileHeader"][f"LISH{idx + 1:03d}"].value = seg["subheader"].get_size()
-            self["FileHeader"][f"LI{idx + 1:03d}"].value = seg["Data"].size
+            self["FileHeader"][f"LISH{idx + 1:03d}"]._set_value(
+                seg["subheader"].get_size()
+            )
+            self["FileHeader"][f"LI{idx + 1:03d}"]._set_value(seg["Data"].size)
 
         for idx, seg in enumerate(self["GraphicSegments"]):
-            self["FileHeader"][f"LSSH{idx + 1:03d}"].value = seg["subheader"].get_size()
-            self["FileHeader"][f"LS{idx + 1:03d}"].value = seg["Data"].size
+            self["FileHeader"][f"LSSH{idx + 1:03d}"]._set_value(
+                seg["subheader"].get_size()
+            )
+            self["FileHeader"][f"LS{idx + 1:03d}"]._set_value(seg["Data"].size)
 
         for idx, seg in enumerate(self["TextSegments"]):
-            self["FileHeader"][f"LTSH{idx + 1:03d}"].value = seg["subheader"].get_size()
-            self["FileHeader"][f"LT{idx + 1:03d}"].value = seg["Data"].size
+            self["FileHeader"][f"LTSH{idx + 1:03d}"]._set_value(
+                seg["subheader"].get_size()
+            )
+            self["FileHeader"][f"LT{idx + 1:03d}"]._set_value(seg["Data"].size)
 
         for idx, seg in enumerate(self["DataExtensionSegments"]):
-            self["FileHeader"][f"LDSH{idx + 1:03d}"].value = seg["subheader"].get_size()
-            self["FileHeader"][f"LD{idx + 1:03d}"].value = seg["DESDATA"].size
+            self["FileHeader"][f"LDSH{idx + 1:03d}"]._set_value(
+                seg["subheader"].get_size()
+            )
+            self["FileHeader"][f"LD{idx + 1:03d}"]._set_value(seg["DESDATA"].size)
 
         for idx, seg in enumerate(self["ReservedExtensionSegments"]):
-            self["FileHeader"][f"LRESH{idx + 1:03d}"].value = seg[
-                "subheader"
-            ].get_size()
-            self["FileHeader"][f"LRE{idx + 1:03d}"].value = seg["RESDATA"].size
+            self["FileHeader"][f"LRESH{idx + 1:03d}"]._set_value(
+                seg["subheader"].get_size()
+            )
+            self["FileHeader"][f"LRE{idx + 1:03d}"]._set_value(seg["RESDATA"].size)
 
     def update_fdt(self) -> None:
         """Set the FDT field to the current time"""
@@ -2947,6 +2947,7 @@ class Biif(Group):
 
     def finalize(self) -> None:
         """Compute derived values such as lengths, and CLEVEL"""
+        super().finalize()
         self.update_lengths()
         self.update_fdt()
         self.update_clevel()  # must be after lengths
@@ -3202,6 +3203,195 @@ class Biif(Group):
             clevel = max(clevel, getattr(self, helper)())
 
         self["FileHeader"]["CLEVEL"].value = clevel
+
+
+class TreSequence(ComponentCollection, collections.abc.MutableSequence):
+    """
+    TREs which appear one after the other with no intervening bytes
+
+    Intended for use as the user defined and/or extended data fields.  See Section 5.9.3.
+
+    Arguments
+    ---------
+    name: str
+        Name to give the field
+    length: int
+        Initial length in bytes
+
+    """
+
+    def __init__(self, name, length):
+        super().__init__(name)
+        self._length = length
+
+    def _load_impl(self, fd):
+        if self._children:
+            return super()._load_impl(fd)
+
+        # else need to discover which TREs are in the file
+        bytes_read = 0
+        while bytes_read < self._length:
+            tretag = fd.read(6).decode()
+            fd.seek(-6, os.SEEK_CUR)
+            tre = tre_factory(tretag)
+            self._append(tre)
+            tre.load(fd)
+            bytes_read += tre.get_size()
+
+        if bytes_read != self._length:
+            logger.warning(
+                f"Length of TREs ({bytes_read}) in {self.name} does not match expected length ({self._length})"
+            )
+
+    def __getitem__(self, key):
+        return self._children[key]
+
+    def __setitem__(self, key, value):
+        value._parent = self
+        self._children[key] = value
+
+    def __delitem__(self, key):
+        del self._children[key]
+
+    def __len__(self):
+        return len(self._children)
+
+    def insert(self, index, element):
+        element._parent = self
+        self._children.insert(index, element)
+
+
+class Tre(Group):
+    """Base class for TREs
+
+    Includes the TRETAG and TREL tags.
+
+    Arguments
+    ---------
+    identifier : str
+        identifier of the TRE.  Must be exactly 6 characters.
+    tretag_rename : str
+        Alternative to give the 'TRETAG' field
+    trel_rename : str
+        Alternative to give the 'TREL' field
+    length_constraint : RangeCheck or None
+        range check for 'TREL' field.  Defaults to MinMax(1, 99985)
+
+    Note
+    ----
+    BIIF and JBP define TREs as having 3 fields, TRETAG, TREL, and. TREDATA.
+    However, TREs commonly rename TRETAG and TREL and define their own fields as replacing TREDATA.
+    """
+
+    def __init__(
+        self,
+        identifier: str,
+        tretag_rename: str = "TRETAG",
+        trel_rename: str = "TREL",
+        length_constraint: RangeCheck | None = None,
+    ):
+        if len(identifier) != 6:
+            raise ValueError(
+                f"TRE identifier '{identifier}' must be exactly 6 characters"
+            )
+
+        super().__init__(identifier)
+        self.tretag_rename = tretag_rename
+        self.trel_rename = trel_rename
+
+        if length_constraint is None:
+            length_constraint = MinMax(1, 99985)
+
+        self._append(
+            Field(
+                tretag_rename,
+                "Unique Extension Type Identifier",
+                6,
+                BCSA,
+                Constant(identifier),
+                StringAscii,
+                default=identifier,
+            )
+        )
+
+        self._append(
+            Field(
+                trel_rename,
+                "Length of the TREDATA",
+                5,
+                BCSN_PI,
+                length_constraint,
+                Integer,
+                default=0,
+            )
+        )
+
+    def finalize(self) -> None:
+        """Set the TREL field"""
+        length = 0
+        for child in self._children:
+            if child.name in (self.tretag_rename, self.trel_rename):
+                continue
+            length += child.get_size()
+        self[self.trel_rename]._set_value(length)
+
+
+class UnknownTre(Tre):
+    """TRE without known TREDATA definition.
+    see: Table 5.9-1. Registered and Controlled Tagged Record Extension Format
+    """
+
+    def __init__(self, name):
+        super().__init__(name)
+        self["TREL"]._setter_callback = self._trel_handler
+
+        self._append(
+            Field(
+                "TREDATA",
+                "User-Defined Data",
+                0,
+                None,
+                AnyRange(),
+                Bytes,
+                default=b"",
+            )
+        )
+
+    def _trel_handler(self, field):
+        self["TREDATA"].size = field.value
+
+
+def available_tres() -> dict[str, Callable[[], Tre]]:
+    """All discovered and available TREs
+
+    Returns
+    -------
+    Dictionary of TRE names to classes
+    """
+    return {
+        plugin.name: plugin.load()
+        for plugin in importlib.metadata.entry_points(group="pybiif.extensions.tre")
+    }
+
+
+def tre_factory(tretag: str) -> Tre:
+    """Create a TRE instance
+
+    Arguments
+    ---------
+    tretag : str
+        The 6 character name of the TRE
+
+    Returns
+    -------
+    Tre
+        TRE object
+    """
+    tres = available_tres()
+    if tretag in tres:
+        return tres[tretag]()
+
+    return UnknownTre(tretag)
 
 
 def main(args=None):
