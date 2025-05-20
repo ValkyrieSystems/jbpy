@@ -1,10 +1,10 @@
 import io
 
-import pybiif
+import jbpy
 
 
 def test_sectga():
-    sectga = pybiif.tre_factory("SECTGA")
+    sectga = jbpy.tre_factory("SECTGA")
     sectga.finalize()
     buf = io.BytesIO()
     sectga.dump(buf)

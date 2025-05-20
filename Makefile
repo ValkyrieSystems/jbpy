@@ -5,7 +5,7 @@
 lint:
 	ruff check
 	ruff format --diff
-	mypy pybiif
+	mypy jbpy
 
 build:
 	python -m pip wheel --no-deps . --wheel-dir dist/

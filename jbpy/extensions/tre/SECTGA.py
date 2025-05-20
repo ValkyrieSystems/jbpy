@@ -1,4 +1,4 @@
-from pybiif import core
+from jbpy import core
 
 
 class SECTGA(core.Tre):

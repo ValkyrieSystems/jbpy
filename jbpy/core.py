@@ -1,9 +1,9 @@
-"""Utilities for reading and writing BIIFs (NITF, NSIF)
+"""Utilities for reading and writing JBP files (NITF, NSIF)
 
-The Field, Group, Subheaders, and Biif classes have a dictionary-esque interface
+The Field, Group, Subheaders, and Jbp classes have a dictionary-esque interface
 with key names directly copied from JBP-2024.1 where possible.
 
-In BIIF, the presence of optional fields is controlled by the values of preceding
+In JBP, the presence of optional fields is controlled by the values of preceding
 fields.  This library attempts to mimic this behavior by adding or removing fields
 as necessary when a field is updated.  For example adding image segments is accomplished
 by setting the NUMI field.
@@ -44,7 +44,7 @@ class BinaryFile_RW(BinaryFile_R):
 
 
 class PythonConverter:
-    """Class for converting between BIIF field bytes and python types"""
+    """Class for converting between JBP field bytes and python types"""
 
     def __init__(self, name: str, size: int):
         self.name: str = name
@@ -55,7 +55,7 @@ class PythonConverter:
         truncated = encoded[: self.size]
         if len(truncated) < len(encoded):
             logger.warning(
-                f"BIIF header field {self.name} truncated to {self.size} characters.\n"
+                f"JBP header field {self.name} truncated to {self.size} characters.\n"
                 f"    old: {encoded}"
                 f"    new: {truncated}"
             )
@@ -178,7 +178,7 @@ U8 = "\x00-\xff"
 
 
 class RangeCheck:
-    """Base Class for checking the range of a BIIF field"""
+    """Base Class for checking the range of a JBP field"""
 
     def isvalid(self, decoded_value: Any) -> bool:
         raise NotImplementedError()
@@ -294,8 +294,8 @@ DATETIME_REGEX = Regex(
 DATE_REGEX = Regex(PATTERN_CC + PATTERN_YY + PATTERN_MM + PATTERN_DD)
 
 
-class BiifIOComponent:
-    """Base Class for read/writable BIIF components"""
+class JbpIOComponent:
+    """Base Class for read/writable JBP components"""
 
     def __init__(self, name: str):
         self.name = name
@@ -369,8 +369,8 @@ class BiifIOComponent:
         pass
 
 
-class Field(BiifIOComponent):
-    """BIIF Field containing a single value.
+class Field(JbpIOComponent):
+    """JBP Field containing a single value.
     Intended to have 1:1 mapping to rows in JBP-2024.1 header tables.
 
     Args
@@ -505,7 +505,7 @@ class Field(BiifIOComponent):
         )
 
 
-class BinaryPlaceholder(BiifIOComponent):
+class BinaryPlaceholder(JbpIOComponent):
     """Represents a block of large binary data.
 
     This class does not actually read, write or store data, only seek past it.
@@ -545,12 +545,12 @@ class BinaryPlaceholder(BiifIOComponent):
         print(f"{self.name:15}{self.size:11} @ {self.get_offset():11} <Binary>")
 
 
-class ComponentCollection(BiifIOComponent):
+class ComponentCollection(JbpIOComponent):
     """Base class for components with child sub-components"""
 
     def __init__(self, name: str):
         super().__init__(name)
-        self._children: list[BiifIOComponent] = []
+        self._children: list[JbpIOComponent] = []
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -579,11 +579,11 @@ class ComponentCollection(BiifIOComponent):
             written += child.dump(fd)
         return written
 
-    def _append(self, field: BiifIOComponent) -> None:
+    def _append(self, field: JbpIOComponent) -> None:
         field._parent = self
         self._children.append(field)
 
-    def get_offset_of(self, child_obj: BiifIOComponent) -> int:
+    def get_offset_of(self, child_obj: JbpIOComponent) -> int:
         offset = self.get_offset()
 
         for child in self._children:
@@ -605,7 +605,7 @@ class ComponentCollection(BiifIOComponent):
 
 class Group(ComponentCollection, collections.abc.Mapping):
     """
-    A Collection of BIIF fields.  Indexed by JBP short names.
+    A Collection of JBP fields.  Indexed by JBP short names.
 
     Args
     ----
@@ -632,14 +632,14 @@ class Group(ComponentCollection, collections.abc.Mapping):
         return self._children[index]
 
     def _insert_after(
-        self, existing: BiifIOComponent, field: BiifIOComponent
-    ) -> BiifIOComponent:
+        self, existing: JbpIOComponent, field: JbpIOComponent
+    ) -> JbpIOComponent:
         insert_pos = self._children.index(existing) + 1
         self._children.insert(insert_pos, field)
         field._parent = self
         return field
 
-    def find_all(self, pattern: str) -> Iterator[BiifIOComponent]:
+    def find_all(self, pattern: str) -> Iterator[JbpIOComponent]:
         """Find child components with names matching a regex pattern
         Args
         ----
@@ -667,7 +667,7 @@ class Group(ComponentCollection, collections.abc.Mapping):
 
 
 class SegmentList(ComponentCollection, collections.abc.Sequence):
-    """A sequence of BIIF segments"""
+    """A sequence of JBP segments"""
 
     def __init__(
         self, name: str, field_creator: Callable, minimum: int = 0, maximum: int = 1
@@ -693,7 +693,7 @@ class SegmentList(ComponentCollection, collections.abc.Sequence):
 
 class FileHeader(Group):
     """
-    BIIF File Header
+    JBP File Header
 
     Args
     ----
@@ -1192,7 +1192,7 @@ class FileHeader(Group):
         """Handle NUMI value change"""
         self._remove_all("LISH\\d+")
         self._remove_all("LI\\d+")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1230,7 +1230,7 @@ class FileHeader(Group):
     def _nums_handler(self, field: Field) -> None:
         self._remove_all("LSSH\\d+")
         self._remove_all("LS\\d+")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1273,7 +1273,7 @@ class FileHeader(Group):
     def _numt_handler(self, field: Field) -> None:
         self._remove_all("LTSH\\d+")
         self._remove_all("LT\\d+")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1316,7 +1316,7 @@ class FileHeader(Group):
     def _numdes_handler(self, field: Field) -> None:
         self._remove_all("LDSH\\d+")
         self._remove_all("LD\\d+")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1354,7 +1354,7 @@ class FileHeader(Group):
     def _numres_handler(self, field: Field) -> None:
         self._remove_all("LRESH\\d+")
         self._remove_all("LRE\\d+")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         for idx in range(1, field.value + 1):
             after = self._insert_after(
                 after,
@@ -1397,7 +1397,7 @@ class FileHeader(Group):
     def _udhdl_handler(self, field: Field) -> None:
         self._remove_all("UDHOFL")
         self._remove_all("UDHD")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         if field.value:
             after = self._insert_after(
                 after,
@@ -1417,7 +1417,7 @@ class FileHeader(Group):
     def _xhdl_handler(self, field: Field) -> None:
         self._remove_all("XHDLOFL")
         self._remove_all("XHD")
-        after: BiifIOComponent = field
+        after: JbpIOComponent = field
         if field.value:
             after = self._insert_after(
                 after,
@@ -1438,7 +1438,7 @@ class FileHeader(Group):
         super().finalize()
         _update_tre_lengths(self, "UDHDL", "UDHOFL", "UDHD")
         _update_tre_lengths(self, "XHDL", "XHDLOFL", "XHD")
-        # Other length fields are handled by the parent Biif class
+        # Other length fields are handled by the parent Jbp class
 
 
 # Table A-2
@@ -2747,7 +2747,7 @@ class XmlDataContentSubheader(Group):
 
 def DESSHF_Factory(
     desid_field: Field, desver_field: Field, desshl_field: Field
-) -> BiifIOComponent:  # noqa: N802
+) -> JbpIOComponent:  # noqa: N802
     """Create the DESSHF field based on the DES type
 
     Args
@@ -2761,7 +2761,7 @@ def DESSHF_Factory(
 
     Returns
     -------
-    BiifIOComponent
+    JbpIOComponent
         Either a XmlDataContentSubheader or a Field
     """
     if (desid_field.value, desver_field.value) == ("XML_DATA_CONTENT", 1):
@@ -2786,7 +2786,7 @@ def _update_tre_lengths(header, hdl, ofl, hd):
     header[hdl]._set_value(length)
 
 
-class Biif(Group):
+class Jbp(Group):
     """Class representing an entire NITF/NSIF
 
     Contains the following keys:
@@ -2975,7 +2975,7 @@ class Biif(Group):
             max_ccs_col = max(max_ccs_col, level_origin[dlvl]["col"] + ncols)
 
         if len(self["GraphicSegments"]):
-            logger.warning("CLEVEL of BIIFs with Graphic Segments is not supported")
+            logger.warning("CLEVEL of JBPs with Graphic Segments is not supported")
 
         max_extent = max(max_ccs_row - min_ccs_row, max_ccs_col - min_ccs_col)
         if max_extent <= 2047:
@@ -3370,7 +3370,7 @@ def available_tres() -> dict[str, Callable[[], Tre]]:
     """
     return {
         plugin.name: plugin.load()
-        for plugin in importlib.metadata.entry_points(group="pybiif.extensions.tre")
+        for plugin in importlib.metadata.entry_points(group="jbpy.extensions.tre")
     }
 
 
@@ -3395,11 +3395,11 @@ def tre_factory(tretag: str) -> Tre:
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Display BIIF Header content")
-    parser.add_argument("filename", type=pathlib.Path, help="Path to BIIF file")
+    parser = argparse.ArgumentParser(description="Display JBP Header content")
+    parser.add_argument("filename", type=pathlib.Path, help="Path to JBP file")
     config = parser.parse_args(args)
 
-    bf = Biif()
+    bf = Jbp()
     with config.filename.open("rb") as fd:
         bf.load(fd)
 

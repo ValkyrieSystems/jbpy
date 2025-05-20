@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 [project]
 dynamic = ["version"]
 requires-python = ">= 3.11"
-name = "pybiif"
+name = "jbpy"
 description = "Library for reading and writing Joint BIIF Profile (JBP) files (NITF and NSIF)"
 readme = "README.md"
 license = "MIT"
@@ -35,10 +35,10 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/ValkyrieSystems/pybiif"
+Repository = "https://github.com/ValkyrieSystems/jbpy"
 
 [project.scripts]
-biifinfo = "pybiif.core:main"
+jbpinfo = "jbpy.core:main"
 
-[project.entry-points."pybiif.extensions.tre"]
-SECTGA = "pybiif.extensions.tre.SECTGA:SECTGA"
+[project.entry-points."jbpy.extensions.tre"]
+SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"

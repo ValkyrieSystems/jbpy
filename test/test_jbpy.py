@@ -3,12 +3,12 @@ import pathlib
 
 import pytest
 
-import pybiif
+import jbpy
 
 
 def find_jitcs_test_files():
     # See https://jitc.fhu.disa.mil/projects/nitf/testdata.aspx
-    root_dir = os.environ.get("PYBIIF_JITC_QUICKLOOK_DIR")
+    root_dir = os.environ.get("JBPY_JITC_QUICKLOOK_DIR")
     files = []
     if root_dir is not None:
         root_dir = pathlib.Path(root_dir)
@@ -18,12 +18,12 @@ def find_jitcs_test_files():
 
 
 @pytest.mark.skipif(
-    "PYBIIF_JITC_QUICKLOOK_DIR" not in os.environ,
+    "JBPY_JITC_QUICKLOOK_DIR" not in os.environ,
     reason="requires JITC Quick-Look data",
 )
 @pytest.mark.parametrize("filename", find_jitcs_test_files())
 def test_roundtrip_jitc_quicklook(filename, tmp_path):
-    ntf = pybiif.Biif()
+    ntf = jbpy.Jbp()
     with filename.open("rb") as file:
         ntf.load(file)
 
@@ -31,7 +31,7 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
     with copy_filename.open("wb") as fd:
         ntf.dump(fd)
 
-    ntf2 = pybiif.Biif()
+    ntf2 = jbpy.Jbp()
     with copy_filename.open("rb") as file:
         ntf2.load(file)
 
@@ -39,7 +39,7 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
 
 
 def test_available_tres():
-    all_tres = pybiif.available_tres()
+    all_tres = jbpy.available_tres()
     assert "SECTGA" in all_tres
     for trename in all_tres:
-        assert isinstance(pybiif.tre_factory(trename), all_tres[trename])
+        assert isinstance(jbpy.tre_factory(trename), all_tres[trename])

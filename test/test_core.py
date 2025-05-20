@@ -7,15 +7,15 @@ import tempfile
 
 import pytest
 
-import pybiif.core
+import jbpy.core
 
 
 def test_string_ascii_conv(caplog):
-    conv = pybiif.core.StringAscii("test", 5)
+    conv = jbpy.core.StringAscii("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -30,11 +30,11 @@ def test_string_ascii_conv(caplog):
 
 
 def test_string_iso_conv(caplog):
-    conv = pybiif.core.StringISO8859_1("test", 5)
+    conv = jbpy.core.StringISO8859_1("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -47,11 +47,11 @@ def test_string_iso_conv(caplog):
 
 
 def test_string_utf8_conv(caplog):
-    conv = pybiif.core.StringUtf8("test", 5)
+    conv = jbpy.core.StringUtf8("test", 5)
     assert conv.to_bytes("") == b"     "
     assert conv.to_bytes("abc") == b"abc  "
     assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         assert conv.to_bytes("abcdef") == b"abcde"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -64,17 +64,17 @@ def test_string_utf8_conv(caplog):
 
 
 def test_bytes_conv():
-    conv = pybiif.core.Bytes("test", 5)
+    conv = jbpy.core.Bytes("test", 5)
     assert conv.to_bytes(b"asdf") == b"asdf"
     assert conv.from_bytes(b"asdf") == b"asdf"
 
 
 def test_integer_conv(caplog):
-    conv = pybiif.core.Integer("test", 5)
+    conv = jbpy.core.Integer("test", 5)
     assert conv.to_bytes(0) == b"00000"
     assert conv.to_bytes(10) == b"00010"
     assert conv.to_bytes(-123) == b"-0123"
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         assert conv.to_bytes(123456) == b"12345"
         assert len(caplog.records) == 1
         assert "truncated" in caplog.records[0].message
@@ -85,19 +85,19 @@ def test_integer_conv(caplog):
 
 
 def test_rgb_conv():
-    conv = pybiif.core.RGB("test", 3)
+    conv = jbpy.core.RGB("test", 3)
     assert conv.to_bytes((1, 2, 3)) == b"\01\02\03"
     assert conv.from_bytes(b"\01\02\03") == (1, 2, 3)
 
 
 def test_segmentlist():
-    seglist = pybiif.core.SegmentList(
-        "test", lambda n: pybiif.core.ImageSegment(n, None), minimum=2, maximum=4
+    seglist = jbpy.core.SegmentList(
+        "test", lambda n: jbpy.core.ImageSegment(n, None), minimum=2, maximum=4
     )
     assert len(seglist) == 2
     seglist.set_count(4)
     assert len(seglist) == 4
-    assert isinstance(seglist[-1], pybiif.core.ImageSegment)
+    assert isinstance(seglist[-1], jbpy.core.ImageSegment)
     with pytest.raises(ValueError):
         seglist.set_count(5)
     with pytest.raises(ValueError):
@@ -105,14 +105,14 @@ def test_segmentlist():
 
 
 def test_range_any():
-    check = pybiif.core.AnyRange()
+    check = jbpy.core.AnyRange()
     assert check.isvalid(1)
     assert check.isvalid("")
     assert check.isvalid("a")
 
 
 def test_range_minmax():
-    check = pybiif.core.MinMax(-10, 10)
+    check = jbpy.core.MinMax(-10, 10)
     assert not check.isvalid(-10.1)
     assert check.isvalid(-10)
     assert check.isvalid(0)
@@ -121,7 +121,7 @@ def test_range_minmax():
 
 
 def test_range_regex():
-    check = pybiif.core.Regex("[abc]+")
+    check = jbpy.core.Regex("[abc]+")
     assert check.isvalid("aa")
     assert check.isvalid("cb")
     assert not check.isvalid("ad")
@@ -129,23 +129,23 @@ def test_range_regex():
 
 
 def test_range_constant():
-    check = pybiif.core.Constant("foobar")
+    check = jbpy.core.Constant("foobar")
     assert check.isvalid("foobar")
     assert not check.isvalid("foobar1")
     assert not check.isvalid("1foobar")
 
 
 def test_range_enum():
-    check = pybiif.core.Enum(["A", "B"])
+    check = jbpy.core.Enum(["A", "B"])
     assert check.isvalid("A")
     assert check.isvalid("B")
     assert not check.isvalid("C")
 
 
 def test_range_anyof():
-    check = pybiif.core.AnyOf(
-        pybiif.core.Constant("A"),
-        pybiif.core.Constant("B"),
+    check = jbpy.core.AnyOf(
+        jbpy.core.Constant("A"),
+        jbpy.core.Constant("B"),
     )
     assert check.isvalid("A")
     assert check.isvalid("B")
@@ -153,15 +153,15 @@ def test_range_anyof():
 
 
 def test_range_not():
-    check = pybiif.core.Not(
-        pybiif.core.Constant("A"),
+    check = jbpy.core.Not(
+        jbpy.core.Constant("A"),
     )
     assert not check.isvalid("A")
     assert check.isvalid("B")
 
 
 def emtpy_nitf():
-    ntf = pybiif.core.Biif()
+    ntf = jbpy.core.Jbp()
     ntf["FileHeader"]["OSTAID"].value = "Here"
     ntf["FileHeader"]["FSCLAS"].value = "U"
     return ntf
@@ -204,7 +204,7 @@ def check_roundtrip(ntf):
         second = tmpdir / "copy.ntf"
         with orig.open("wb") as fd:
             ntf.dump(fd)
-        ntf2 = pybiif.core.Biif()
+        ntf2 = jbpy.core.Jbp()
         with orig.open("rb") as fd:
             ntf2.load(fd)
         assert ntf == ntf2
@@ -221,13 +221,13 @@ def test_fileheader(capsys):
     assert "UDHOFL" not in header
     header["UDHDL"].value = 10
     assert "UDHOFL" in header
-    header["UDHD"].append(pybiif.core.tre_factory("SECTGA"))
+    header["UDHD"].append(jbpy.core.tre_factory("SECTGA"))
 
     assert "XHDLOFL" not in header
     assert "XHD" not in header
     header["XHDL"].value = 10
     assert "XHDLOFL" in header
-    header["XHD"].append(pybiif.core.tre_factory("SECTGA"))
+    header["XHD"].append(jbpy.core.tre_factory("SECTGA"))
 
     check_roundtrip(ntf)
 
@@ -374,12 +374,12 @@ def test_deseg():
     check_roundtrip(ntf)
 
     # Test XML_DATA_CONTENT (see STDI-0002 Volume 2 Appendix F)
-    assert isinstance(subheader["DESSHF"], pybiif.core.Field)
+    assert isinstance(subheader["DESSHF"], jbpy.core.Field)
     subheader["DESID"].value = "XML_DATA_CONTENT"
     subheader["DESVER"].value = 1
 
     subheader["DESSHL"].value = 0
-    assert isinstance(subheader["DESSHF"], pybiif.core.XmlDataContentSubheader)
+    assert isinstance(subheader["DESSHF"], jbpy.core.XmlDataContentSubheader)
     assert len(subheader["DESSHF"]) == 0
 
     with pytest.raises(ValueError):
@@ -413,13 +413,13 @@ def test_field(caplog):
     def callback(fld):
         callbackinfo["called"] = True
 
-    field = pybiif.core.Field(
+    field = jbpy.core.Field(
         "MyField",
         "Description",
         5,
-        pybiif.core.BCSN,
-        pybiif.core.MinMax(10, 100),
-        pybiif.core.Integer,
+        jbpy.core.BCSN,
+        jbpy.core.MinMax(10, 100),
+        jbpy.core.Integer,
         default=0,
         setter_callback=callback,
     )
@@ -437,38 +437,38 @@ def test_field(caplog):
         stream = io.BytesIO(b"abcdefghi")
         field.load(stream)
 
-    field = pybiif.core.Field(
+    field = jbpy.core.Field(
         "MyField",
         "Description",
         5,
-        pybiif.core.BCSN,
-        pybiif.core.AnyRange(),
-        pybiif.core.StringUtf8,
+        jbpy.core.BCSN,
+        jbpy.core.AnyRange(),
+        jbpy.core.StringUtf8,
         default="",
     )
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         stream = io.BytesIO(b"abcdefghi")
         field.load(stream)
         assert len(caplog.records) == 1
         assert "Invalid" in caplog.records[0].message
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         field.value = "abc"
         assert len(caplog.records) == 1
         assert "Invalid" in caplog.records[0].message
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="pybiif.core"):
-        pybiif.core.Field(
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
+        jbpy.core.Field(
             "MyField",
             "Description",
             5,
-            pybiif.core.BCSN,
-            pybiif.core.AnyRange(),
-            pybiif.core.StringUtf8,
+            jbpy.core.BCSN,
+            jbpy.core.AnyRange(),
+            jbpy.core.StringUtf8,
             default="abc",
         )
         assert len(caplog.records) == 1
@@ -476,7 +476,7 @@ def test_field(caplog):
 
 
 def test_binaryplaceholder():
-    bp = pybiif.core.BinaryPlaceholder("placeholder", 10)
+    bp = jbpy.core.BinaryPlaceholder("placeholder", 10)
     initial_data = b"0123456789"
     stream = io.BytesIO(initial_data)
     start = stream.tell()
@@ -539,7 +539,7 @@ def test_clevel():
 
 
 def test_unknown_tre():
-    unk = pybiif.core.UnknownTre("UNK00A")
+    unk = jbpy.core.UnknownTre("UNK00A")
     assert unk["TREL"].value == 0
     assert unk["TREDATA"].size == 0
     unk["TREL"].value = 123
