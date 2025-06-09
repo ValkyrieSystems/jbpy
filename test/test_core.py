@@ -462,6 +462,7 @@ def test_field(caplog):
 
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="jbpy.core"):
+        # "invalid" default does not result in a warning
         jbpy.core.Field(
             "MyField",
             "Description",
@@ -471,8 +472,7 @@ def test_field(caplog):
             jbpy.core.StringUtf8,
             default="abc",
         )
-        assert len(caplog.records) == 1
-        assert "Invalid" in caplog.records[0].message
+        assert not caplog.records
 
 
 def test_binaryplaceholder():

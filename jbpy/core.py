@@ -425,7 +425,7 @@ class Field(JbpIOComponent):
         self._converter = converter_class(name, size)
         self._setter_callback = setter_callback
 
-        self.encoded_value = self._converter.to_bytes(default)
+        self._encoded_value = self._converter.to_bytes(default)
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -2240,7 +2240,7 @@ class TextSubheader(Group):
                 BCSA,
                 Enum(["MTF", "STA", "UTI", "U8S"]),
                 StringAscii,
-                default="",  # unclear if this should have a default; there is not one in the doc, but not having a valid default spits out warnings
+                default="",
             )
         )
         self._append(
