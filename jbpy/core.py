@@ -2134,20 +2134,204 @@ class ImageSegment(Group):
         super().print()
 
 
-class GraphicSegment(Group):
-    def __init__(self, name: str, subheader_size: int, data_size: int):
+class GraphicSubheader(Group):
+    """
+    Graphic Subheader fields
+
+    Args
+    ----
+    name: str
+        Name to give this component
+
+    Note
+    ----
+    See JBP-2024.1 Table 5.15-1
+
+    """
+
+    def __init__(self, name: str):
         super().__init__(name)
+
         self._append(
             Field(
-                "subheader",
-                "Placeholder",
-                subheader_size,
-                None,
-                AnyRange(),
-                Bytes,
-                default=b"",
+                "SY",
+                "File Part Type",
+                2,
+                BCSA,
+                Constant("SY"),
+                StringAscii,
+                default="SY",
             )
         )
+        self._append(
+            Field(
+                "SID",
+                "Graphic Identifier",
+                10,
+                BCSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                "SNAME",
+                "Graphic Name",
+                20,
+                ECSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            )
+        )
+        self._extend(SecurityFields("Security Fields Graphic", "S").values())
+        self._append(
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
+        )
+        self._append(
+            Field(
+                "SFMT",
+                "Graphic Type",
+                1,
+                BCSA,
+                Constant("C"),
+                StringAscii,
+                default="C",
+            )
+        )
+        self._append(
+            Field(
+                "SSTRUCT",
+                "Reserved for Future Use",
+                13,
+                BCSN_PI,
+                Constant(0),
+                Integer,
+                default=0,
+            )
+        )
+        self._append(
+            Field(
+                "SDLVL",
+                "Graphic Display Level",
+                3,
+                BCSN_PI,
+                MinMax(1, None),
+                Integer,
+                default=1,
+            )
+        )
+        self._append(
+            Field(
+                "SALVL",
+                "Graphic Attachment Level",
+                3,
+                BCSN_PI,
+                MinMax(0, 998),
+                Integer,
+                default=0,
+            )
+        )
+        self._append(
+            Field(
+                "SLOC",
+                "Graphic Location",
+                10,
+                BCSN,
+                AnyRange(),
+                int_pair(5),
+                default=(0, 0),
+            )
+        )
+        self._append(
+            Field(
+                "SBND1",
+                "First Graphic Bound Location",
+                10,
+                BCSN,
+                AnyRange(),
+                int_pair(5),
+                default=(0, 0),
+            )
+        )
+        self._append(
+            Field(
+                "SCOLOR",
+                "Graphic Color",
+                1,
+                BCSA,
+                Enum(["C", "M"]),
+                StringAscii,
+                default="",  # should this have a default?
+            )
+        )
+        self._append(
+            Field(
+                "SBND2",
+                "Second Graphic Bound Location",
+                10,
+                BCSN,
+                AnyRange(),
+                int_pair(5),
+                default=(0, 0),
+            )
+        )
+        self._append(
+            Field(
+                "SRES2",
+                "Reserved for Future Use",
+                2,
+                BCSN_PI,
+                Constant(0),
+                Integer,
+                default=0,
+            )
+        )
+        self._append(
+            Field(
+                "SXSHDL",
+                "Graphic Extended Subheader Data Length",
+                5,
+                BCSN_PI,
+                AnyOf(
+                    Constant(0),
+                    MinMax(3, 9741),
+                ),
+                Integer,
+                default=0,
+                setter_callback=self._sxshdl_handler,
+            )
+        )
+
+    def _sxshdl_handler(self, field: Field) -> None:
+        self._remove_all("SXSOFL")
+        self._remove_all("SXSHD")
+        if field.value > 0:
+            after = self._insert_after(
+                field,
+                Field(
+                    "SXSOFL",
+                    "Graphic Extended Subheader Overflow",
+                    3,
+                    BCSN_PI,
+                    AnyRange(),
+                    Integer,
+                    default=0,
+                ),
+            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("SXSHD", field.value - 3))
+
+    def finalize(self) -> None:
+        super().finalize()
+        _update_tre_lengths(self, "SXSHDL", "SXSOFL", "SXSHD")
+
+
+class GraphicSegment(Group):
+    def __init__(self, name: str, data_size: int):
+        super().__init__(name)
+        self._append(GraphicSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
     def print(self) -> None:
@@ -2623,7 +2807,7 @@ class Jbp(Group):
         self._append(
             SegmentList(
                 "GraphicSegments",
-                lambda n: GraphicSegment(n, None, None),
+                lambda n: GraphicSegment(n, None),
                 maximum=999,
             )
         )

@@ -344,7 +344,7 @@ def test_imseg():
     subheader["UDIDL"].value = 100
     assert "UDOFL" in subheader
     assert "UDID" in subheader
-    len(subheader["UDID"]) == 0  # NO TREs
+    assert len(subheader["UDID"]) == 0  # NO TREs
 
     assert "IXSOFL" not in subheader
     assert "IXSHD" not in subheader
@@ -579,3 +579,32 @@ def test_txtseg():
     subheader["TXSHDL"].value = 100
     assert "TXSOFL" in subheader
     assert "TXSHD" in subheader
+
+
+def add_graphicseg(ntf):
+    ntf["FileHeader"]["NUMS"].value += 1
+    idx = ntf["FileHeader"]["NUMS"].value - 1
+    ntf["GraphicSegments"][idx]["subheader"]["SID"].value = "Unit Test"
+    ntf["GraphicSegments"][idx]["subheader"]["SNAME"].value = "S is for graphic"
+    ntf["GraphicSegments"][idx]["subheader"]["SSCLAS"].value = "U"
+    ntf["GraphicSegments"][idx]["subheader"]["SLOC"].value = (0, 1)
+    ntf["GraphicSegments"][idx]["subheader"]["SBND1"].value = (2, 3)
+    ntf["GraphicSegments"][idx]["subheader"]["SBND2"].value = (4, 5)
+    ntf["GraphicSegments"][idx]["Data"].size = 20 * 30
+    return ntf
+
+
+def test_graphicseg():
+    ntf = emtpy_nitf()
+    add_graphicseg(ntf)
+    check_roundtrip(ntf)
+    add_graphicseg(ntf)
+    assert ntf["FileHeader"]["NUMS"].value == 2
+    check_roundtrip(ntf)
+    subheader = ntf["GraphicSegments"][0]["subheader"]
+
+    assert "SXSOFL" not in subheader
+    assert "SXSHD" not in subheader
+    subheader["SXSHDL"].value = 100
+    assert "SXSOFL" in subheader
+    assert "SXSHD" in subheader
