@@ -425,7 +425,7 @@ class Field(JbpIOComponent):
         self._converter = converter_class(name, size)
         self._setter_callback = setter_callback
 
-        self.encoded_value = self._converter.to_bytes(default)
+        self._encoded_value = self._converter.to_bytes(default)
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -583,6 +583,10 @@ class ComponentCollection(JbpIOComponent):
         field._parent = self
         self._children.append(field)
 
+    def _extend(self, fields: Iterable[JbpIOComponent]) -> None:
+        for field in fields:
+            self._append(field)
+
     def get_offset_of(self, child_obj: JbpIOComponent) -> int:
         offset = self.get_offset()
 
@@ -689,6 +693,203 @@ class SegmentList(ComponentCollection, collections.abc.Sequence):
             self._append(new_field)
         for _ in range(size, len(self._children)):
             self._children.pop()
+
+
+class SecurityFields(Group):
+    """
+    JBP security header/subheader fields
+
+    Args
+    ----
+    name: str
+        Name to give this component
+    x: str
+        Value to replace leading "x" of Short Name in fields
+
+    Note
+    ----
+    See JBP-2024.1 Table 5.10-1 and Table 5.10-2
+
+    """
+
+    def __init__(self, name: str, x: str):
+        super().__init__(name)
+        self._append(
+            Field(
+                f"{x}SCLAS",
+                "Security Classification",
+                1,
+                ECSA,
+                Enum(["T", "S", "C", "R", "U"]),
+                StringISO8859_1,
+                default="U",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCLSY",
+                "Security Classification System",
+                2,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCODE",
+                "Codewords",
+                11,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCTLH",
+                "Control and Handling",
+                2,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SREL",
+                "Releasing Instructions",
+                20,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SDCTP",
+                "Declassification Type",
+                2,
+                ECSA,
+                Enum(["", "DD", "DE", "GD", "GE", "O", "X"]),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SDCDT",
+                "Declassification Date",
+                8,
+                ECSA,
+                AnyOf(Constant(""), DATE_REGEX),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SDCXM",
+                "Declassification Exemption",
+                4,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SDG",
+                "Downgrade",
+                1,
+                ECSA,
+                Enum(["", "S", "C", "R"]),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SDGDT",
+                "Downgrade Date",
+                8,
+                ECSA,
+                AnyOf(Constant(""), DATE_REGEX),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCLTX",
+                "Classification Text",
+                43,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCATP",
+                "Classification Authority Type",
+                1,
+                ECSA,
+                Enum(["", "O", "D", "M"]),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCAUT",
+                "Classification Authority",
+                40,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCRSN",
+                "Classification Reason",
+                1,
+                ECSA,
+                AnyOf(Constant(""), Regex("[A-G]")),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SSRDT",
+                "Security Source Date",
+                8,
+                ECSA,
+                AnyOf(Constant(""), DATE_REGEX),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                f"{x}SCTLN",
+                "Security Control Number",
+                15,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
 
 
 class FileHeader(Group):
@@ -842,182 +1043,7 @@ class FileHeader(Group):
                 default="",
             )
         )
-        self._append(
-            Field(
-                "FSCLAS",
-                "File Security Classification",
-                1,
-                ECSA,
-                Enum(["T", "S", "C", "R", "U"]),
-                StringISO8859_1,
-                default="U",
-            )
-        )
-        self._append(
-            Field(
-                "FSCLSY",
-                "File Security Classification System",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCODE",
-                "File Codewords",
-                11,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCTLH",
-                "File Control and Handling",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSREL",
-                "File Release Instructions",
-                20,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSDCTP",
-                "File Declassification Type",
-                2,
-                ECSA,
-                Enum(["", "DD", "DE", "GD", "GE", "O", "X"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSDCDT",
-                "File Declassification Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSDCXM",
-                "File Declassification Exemption",
-                4,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSDG",
-                "File Downgrade",
-                1,
-                ECSA,
-                Enum(["", "S", "C", "R"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSDGDT",
-                "File Downgrade Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCLTX",
-                "File Classification Text",
-                43,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCATP",
-                "File Classification Authority Type",
-                1,
-                ECSA,
-                Enum(["", "O", "D", "M"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCAUT",
-                "File Classification Authority",
-                40,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCRSN",
-                "File Classification Reason",
-                1,
-                ECSA,
-                AnyOf(Constant(""), Regex("[A-G]")),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSSRDT",
-                "File Security Source Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "FSCTLN",
-                "File Security Control Number",
-                15,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
+        self._extend(SecurityFields("File Header Security Fields", "F").values())
         self._append(
             Field(
                 "FSCOP", "File Copy Number", 5, BCSN_PI, AnyRange(), Integer, default=0
@@ -1035,7 +1061,7 @@ class FileHeader(Group):
             )
         )
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
         )
         self._append(
             Field(
@@ -1549,184 +1575,9 @@ class ImageSubheader(Group):
                 default="",
             )
         )
+        self._extend(SecurityFields("Security Fields Image", "I").values())
         self._append(
-            Field(
-                "ISCLAS",
-                "Image Security Classification",
-                1,
-                ECSA,
-                Enum(["T", "S", "C", "R", "U"]),
-                StringISO8859_1,
-                default="U",
-            )
-        )
-        self._append(
-            Field(
-                "ISCLSY",
-                "Image Security Classification System",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCODE",
-                "Image Codewords",
-                11,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCTLH",
-                "Image Control and Handling",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISREL",
-                "Image Release Instructions",
-                20,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISDCTP",
-                "Image Declassification Type",
-                2,
-                ECSA,
-                Enum(["", "DD", "DE", "GD", "GE", "O", "X"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISDCDT",
-                "Image Declassification Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISDCXM",
-                "Image Declassification Exemption",
-                4,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISDG",
-                "Image Downgrade",
-                1,
-                ECSA,
-                Enum(["", "S", "C", "R"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISDGDT",
-                "Image Downgrade Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCLTX",
-                "Image Classification Text",
-                43,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCATP",
-                "Image Classification Authority Type",
-                1,
-                ECSA,
-                Enum(["", "O", "D", "M"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCAUT",
-                "Image Classification Authority",
-                40,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCRSN",
-                "Image Classification Reason",
-                1,
-                ECSA,
-                AnyOf(Constant(""), Regex("[A-G]")),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISSRDT",
-                "Image Security Source Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "ISCTLN",
-                "Image Security Control Number",
-                15,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
         )
         self._append(
             Field(
@@ -2304,20 +2155,138 @@ class GraphicSegment(Group):
         super().print()
 
 
-class TextSegment(Group):
-    def __init__(self, name: str, subheader_size: int, data_size: int):
+class TextSubheader(Group):
+    """
+    Text Subheader fields
+
+    Args
+    ----
+    name: str
+        Name to give this component
+
+    Note
+    ----
+    See JBP-2024.1 Table 5.17-1
+
+    """
+
+    def __init__(self, name: str):
         super().__init__(name)
+
         self._append(
             Field(
-                "subheader",
-                "Placeholder",
-                subheader_size,
-                None,
-                AnyRange(),
-                Bytes,
-                default=b"",
+                "TE",
+                "File Part Type",
+                2,
+                BCSA,
+                Constant("TE"),
+                StringAscii,
+                default="TE",
             )
         )
+        self._append(
+            Field(
+                "TEXTID",
+                "Text Identifier",
+                7,
+                BCSA,
+                AnyRange(),
+                StringAscii,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                "TXTALVL",
+                "Text Attachment Level",
+                3,
+                BCSN_PI,
+                MinMax(0, 998),
+                Integer,
+                default=0,
+            )
+        )
+        self._append(
+            Field(
+                "TXTDT",
+                "Text Date and Time",
+                14,
+                BCSN,
+                DATETIME_REGEX,
+                StringAscii,
+                default="-" * 14,
+            )
+        )
+        self._append(
+            Field(
+                "TXTITL",
+                "Text Title",
+                80,
+                ECSA,
+                AnyRange(),
+                StringISO8859_1,
+                default="",
+            )
+        )
+        self._extend(SecurityFields("Security Fields Text", "T").values())
+        self._append(
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
+        )
+        self._append(
+            Field(
+                "TXTFMT",
+                "Text Format",
+                3,
+                BCSA,
+                Enum(["MTF", "STA", "UTI", "U8S"]),
+                StringAscii,
+                default="",
+            )
+        )
+        self._append(
+            Field(
+                "TXSHDL",
+                "Text Extended Subheader Data Length",
+                5,
+                BCSN_PI,
+                AnyOf(
+                    Constant(0),
+                    MinMax(3, 9717),
+                ),
+                Integer,
+                default=0,
+                setter_callback=self._txshdl_handler,
+            )
+        )
+
+    def _txshdl_handler(self, field: Field) -> None:
+        self._remove_all("TXSOFL")
+        self._remove_all("TXSHD")
+        if field.value > 0:
+            after = self._insert_after(
+                field,
+                Field(
+                    "TXSOFL",
+                    "Text Extended Subheader Overflow",
+                    3,
+                    BCSN_PI,
+                    AnyRange(),
+                    Integer,
+                    default=0,
+                ),
+            )
+        if field.value > 3:
+            after = self._insert_after(after, TreSequence("TXSHD", field.value - 3))
+
+    def finalize(self) -> None:
+        super().finalize()
+        _update_tre_lengths(self, "TXSHDL", "TXSOFL", "TXSHD")
+
+
+class TextSegment(Group):
+    def __init__(self, name: str, data_size: int):
+        super().__init__(name)
+        self._append(TextSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
     def print(self) -> None:
@@ -2383,182 +2352,7 @@ class DataExtensionSubheader(Group):
                 default=1,
             )
         )
-        self._append(
-            Field(
-                "DESCLAS",
-                "DES Security Classification",
-                1,
-                ECSA,
-                Enum(["T", "S", "C", "R", "U"]),
-                StringISO8859_1,
-                default="U",
-            )
-        )
-        self._append(
-            Field(
-                "DESCLSY",
-                "DES Security Classification System",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCODE",
-                "DES Codewords",
-                11,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCTLH",
-                "DES Control and Handling",
-                2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESREL",
-                "DES Release Instructions",
-                20,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESDCTP",
-                "DES Declassification Type",
-                2,
-                ECSA,
-                Enum(["", "DD", "DE", "GD", "GE", "O", "X"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESDCDT",
-                "DES Declassification Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESDCXM",
-                "DES Declassification Exemption",
-                4,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESDG",
-                "DES Downgrade",
-                1,
-                ECSA,
-                Enum(["", "S", "C", "R"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESDGDT",
-                "DES Downgrade Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCLTX",
-                "DES Classification Text",
-                43,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCATP",
-                "DES Classification Authority Type",
-                1,
-                ECSA,
-                Enum(["", "O", "D", "M"]),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCAUT",
-                "DES Classification Authority",
-                40,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCRSN",
-                "DES Classification Reason",
-                1,
-                ECSA,
-                AnyOf(Constant(""), Regex("[A-G]")),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESSRDT",
-                "DES Security Source Date",
-                8,
-                ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
-                StringISO8859_1,
-                default="",
-            )
-        )
-        self._append(
-            Field(
-                "DESCTLN",
-                "DES Security Control Number",
-                15,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1,
-                default="",
-            )
-        )
+        self._extend(SecurityFields("Security Fields DES", "DE").values())
         # DESOFLW
         # DESITEM
         self._append(
@@ -2836,7 +2630,7 @@ class Jbp(Group):
         self._append(
             SegmentList(
                 "TextSegments",
-                lambda n: TextSegment(n, None, None),
+                lambda n: TextSegment(n, None),
                 maximum=999,
             )
         )
