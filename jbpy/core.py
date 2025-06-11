@@ -1061,7 +1061,7 @@ class FileHeader(Group):
             )
         )
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
         )
         self._append(
             Field(
@@ -1577,7 +1577,7 @@ class ImageSubheader(Group):
         )
         self._extend(SecurityFields("Security Fields Image", "I").values())
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
         )
         self._append(
             Field(
@@ -2230,7 +2230,7 @@ class TextSubheader(Group):
         )
         self._extend(SecurityFields("Security Fields Text", "T").values())
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, AnyRange(), Integer, default=0)
+            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer, default=0)
         )
         self._append(
             Field(
@@ -2251,7 +2251,7 @@ class TextSubheader(Group):
                 BCSN_PI,
                 AnyOf(
                     Constant(0),
-                    MinMax(3, None),  # upper bound in 5.17.2.9 seems like a typo
+                    MinMax(3, 9717),
                 ),
                 Integer,
                 default=0,
