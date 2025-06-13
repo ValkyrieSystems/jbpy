@@ -344,7 +344,7 @@ def test_imseg():
     subheader["UDIDL"].value = 100
     assert "UDOFL" in subheader
     assert "UDID" in subheader
-    len(subheader["UDID"]) == 0  # NO TREs
+    assert len(subheader["UDID"]) == 0  # NO TREs
 
     assert "IXSOFL" not in subheader
     assert "IXSHD" not in subheader
@@ -462,6 +462,7 @@ def test_field(caplog):
 
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="jbpy.core"):
+        # "invalid" default does not result in a warning
         jbpy.core.Field(
             "MyField",
             "Description",
@@ -471,8 +472,7 @@ def test_field(caplog):
             jbpy.core.StringUtf8,
             default="abc",
         )
-        assert len(caplog.records) == 1
-        assert "Invalid" in caplog.records[0].message
+        assert not caplog.records
 
 
 def test_binaryplaceholder():
@@ -548,3 +548,63 @@ def test_unknown_tre():
     unk["TREDATA"].size = 456
     unk.finalize()
     assert unk["TREL"].value == 456
+
+
+def add_txtseg(ntf):
+    ntf["FileHeader"]["NUMT"].value += 1
+    idx = ntf["FileHeader"]["NUMT"].value - 1
+    ntf["TextSegments"][idx]["subheader"]["TEXTID"].value = "Unit Te"
+    ntf["TextSegments"][idx]["subheader"]["TXTALVL"].value = 24
+    ntf["TextSegments"][idx]["subheader"]["TXTDT"].value = datetime.datetime(
+        1955, 11, 5
+    ).strftime("%Y%m%d%H%M%S")
+    ntf["TextSegments"][idx]["subheader"]["TXTITL"].value = "the text title"
+    ntf["TextSegments"][idx]["subheader"]["TSCLAS"].value = "U"
+    ntf["TextSegments"][idx]["subheader"]["TXTFMT"].value = "U8S"
+    ntf["TextSegments"][idx]["Data"].size = 20 * 30
+    return ntf
+
+
+def test_txtseg():
+    ntf = emtpy_nitf()
+    add_txtseg(ntf)
+    check_roundtrip(ntf)
+    add_txtseg(ntf)
+    assert ntf["FileHeader"]["NUMT"].value == 2
+    check_roundtrip(ntf)
+    subheader = ntf["TextSegments"][0]["subheader"]
+
+    assert "TXSOFL" not in subheader
+    assert "TXSHD" not in subheader
+    subheader["TXSHDL"].value = 100
+    assert "TXSOFL" in subheader
+    assert "TXSHD" in subheader
+
+
+def add_graphicseg(ntf):
+    ntf["FileHeader"]["NUMS"].value += 1
+    idx = ntf["FileHeader"]["NUMS"].value - 1
+    ntf["GraphicSegments"][idx]["subheader"]["SID"].value = "Unit Test"
+    ntf["GraphicSegments"][idx]["subheader"]["SNAME"].value = "S is for graphic"
+    ntf["GraphicSegments"][idx]["subheader"]["SSCLAS"].value = "U"
+    ntf["GraphicSegments"][idx]["subheader"]["SLOC"].value = (0, 1)
+    ntf["GraphicSegments"][idx]["subheader"]["SBND1"].value = (2, 3)
+    ntf["GraphicSegments"][idx]["subheader"]["SBND2"].value = (4, 5)
+    ntf["GraphicSegments"][idx]["Data"].size = 20 * 30
+    return ntf
+
+
+def test_graphicseg():
+    ntf = emtpy_nitf()
+    add_graphicseg(ntf)
+    check_roundtrip(ntf)
+    add_graphicseg(ntf)
+    assert ntf["FileHeader"]["NUMS"].value == 2
+    check_roundtrip(ntf)
+    subheader = ntf["GraphicSegments"][0]["subheader"]
+
+    assert "SXSOFL" not in subheader
+    assert "SXSHD" not in subheader
+    subheader["SXSHDL"].value = 100
+    assert "SXSOFL" in subheader
+    assert "SXSHD" in subheader
