@@ -2,7 +2,9 @@ import datetime
 import filecmp
 import io
 import logging
+import os
 import pathlib
+import random
 import tempfile
 
 import pytest
@@ -160,7 +162,7 @@ def test_range_not():
     assert check.isvalid("B")
 
 
-def emtpy_nitf():
+def empty_nitf():
     ntf = jbpy.core.Jbp()
     ntf["FileHeader"]["OSTAID"].value = "Here"
     ntf["FileHeader"]["FSCLAS"].value = "U"
@@ -216,7 +218,7 @@ def check_roundtrip(ntf):
 
 
 def test_fileheader(capsys):
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     header = ntf["FileHeader"]
     assert "UDHOFL" not in header
     header["UDHDL"].value = 10
@@ -295,7 +297,7 @@ def test_fileheader(capsys):
 
 
 def test_imseg():
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     add_imseg(ntf)
     check_roundtrip(ntf)
     add_imseg(ntf)
@@ -354,7 +356,7 @@ def test_imseg():
 
 
 def test_deseg():
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     assert ntf["FileHeader"]["NUMDES"].value == 0
     assert len(ntf["DataExtensionSegments"]) == 0
     ntf["FileHeader"]["NUMDES"].value += 1
@@ -487,7 +489,7 @@ def test_binaryplaceholder():
 
 
 def test_clevel():
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     ntf["FileHeader"]["NUMI"].value = 2
     ntf["ImageSegments"][0]["subheader"]["IDLVL"].value = 1
     ntf["ImageSegments"][0]["subheader"]["IALVL"].value = 0
@@ -566,7 +568,7 @@ def add_txtseg(ntf):
 
 
 def test_txtseg():
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     add_txtseg(ntf)
     check_roundtrip(ntf)
     add_txtseg(ntf)
@@ -595,7 +597,7 @@ def add_graphicseg(ntf):
 
 
 def test_graphicseg():
-    ntf = emtpy_nitf()
+    ntf = empty_nitf()
     add_graphicseg(ntf)
     check_roundtrip(ntf)
     add_graphicseg(ntf)
@@ -608,3 +610,47 @@ def test_graphicseg():
     subheader["SXSHDL"].value = 100
     assert "SXSOFL" in subheader
     assert "SXSHD" in subheader
+
+
+def test_as_filelike(tmp_path):
+    empty = empty_nitf()
+    filename = tmp_path / "file.nitf"
+    with filename.open("wb") as file:
+        empty.dump(file)
+
+    with filename.open("rb") as file:
+        ntf = jbpy.core.Jbp().load(file)
+        subfile = ntf["FileHeader"]["OSTAID"].as_filelike(file)
+        assert subfile.read() == b"Here      "
+
+
+def test_subfile(tmp_path):
+    filename = tmp_path / "random.bin"
+    all_data = random.randbytes(1000)
+    filename.write_bytes(all_data)
+
+    with filename.open("rb") as file:
+        start = 11
+        length = 22
+        subfile = jbpy.core.SubFile(file, start, length)
+        assert subfile.tell() == 0
+        assert subfile.read() == all_data[start : start + length]
+        expected_pos = length
+        assert subfile.tell() == expected_pos
+        subfile.seek(1)
+        expected_pos = 1
+        assert (
+            subfile.read(5) == all_data[start + expected_pos : start + expected_pos + 5]
+        )
+        expected_pos += 5
+        subfile.seek(1, os.SEEK_CUR)
+        expected_pos += 1
+        assert subfile.tell() == expected_pos
+        assert (
+            subfile.read(5) == all_data[start + expected_pos : start + expected_pos + 5]
+        )
+        subfile.seek(-2, os.SEEK_END)
+        expected_pos = length - 2
+        assert subfile.tell() == expected_pos
+        subfile.seek(length + 100)
+        assert subfile.read() == b""
