@@ -43,6 +43,85 @@ class BinaryFile_RW(BinaryFile_R):
     def write(self, __data: bytes) -> int: ...
 
 
+class SubFile:
+    """File-like object mapping to a contiguous subset of another file-like object"""
+
+    def __init__(self, file: BinaryFile_R, start: int, length: int):
+        """
+        Initialize a SubFile view.
+
+        Arguments
+        ---------
+        file : file-like
+            An open file object.  Must be binary.
+        start : int
+            Start byte offset of the subfile
+        length : int
+            Number of bytes to expose from the start
+        """
+        self._file = file
+        self._start = start
+        self._length = length
+        self._pos = 0  # position within the subfile
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        """
+        Seek to a position within the subfile.
+
+        Arguments
+        ---------
+        offset : int
+            Offset to seek
+        whence : int
+            0 (start), 1 (current), or 2 (end of subfile)
+
+        Returns
+        -------
+        int
+            Current offset in the SubFile
+        """
+        if whence == 0:
+            new_pos = offset
+        elif whence == 1:
+            new_pos = self._pos + offset
+        elif whence == 2:
+            new_pos = self._length + offset
+        else:
+            raise ValueError(f"whence value {whence} unsupported")
+
+        if new_pos < 0:
+            raise OSError("Seek before start of subfile.")
+
+        self._pos = new_pos
+        return self._pos
+
+    def tell(self) -> int:
+        """Return the current position within the subfile."""
+        return self._pos
+
+    def read(self, size: int = -1) -> bytes:
+        """
+        Read data from the subfile.
+
+        Arguments
+        ---------
+        size : int
+            Number of bytes to read, or -1 for all remaining
+        """
+        if self._pos >= self._length:
+            return b""
+
+        read_len = (
+            self._length - self._pos
+            if size < 0
+            else min(size, self._length - self._pos)
+        )
+        self._file.seek(self._start + self._pos)
+        data = self._file.read(read_len)
+        self._pos += len(data)
+        return data
+
+
 class PythonConverter:
     """Class for converting between JBP field bytes and python types"""
 
@@ -367,6 +446,21 @@ class JbpIOComponent:
     def finalize(self):
         """Perform any necessary final updates"""
         pass
+
+    def as_filelike(self, file: BinaryFile_R) -> SubFile:
+        """Create file object containing just this component
+
+        Arguments
+        ---------
+        file : file-like
+            File object for entire file
+
+        Returns
+        -------
+        SubFile
+            File like object for this component
+        """
+        return SubFile(file, self.get_offset(), self.get_size())
 
 
 class Field(JbpIOComponent):
