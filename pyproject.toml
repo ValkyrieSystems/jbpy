@@ -7,6 +7,23 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
 
+[[tool.mypy.overrides]]
+module = [
+    "smart_open.*",
+]
+ignore_missing_imports = true
+
+[tool.ruff.lint]
+select = [
+    "E4",  # pycodestyle Import
+    "E7",  # pycodestyle Statement
+    "E9",  # pycodestyle Runtime
+    "F",   # pyflakes
+    "I",  # isort
+    "RUF022", # unsorted-dunder-all
+]
+preview = true
+
 [project]
 dynamic = ["version"]
 requires-python = ">= 3.11"
@@ -29,16 +46,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "aiohttp",
     "mypy",
     "ruff",
     "pytest",
+    "smart_open[http]",
 ]
 
 [project.urls]
 Repository = "https://github.com/ValkyrieSystems/jbpy"
 
 [project.scripts]
-jbpinfo = "jbpy.core:main"
+jbpinfo = "jbpy._jbpinfo:main"
+jbpdump = "jbpy._jbpdump:main"
 
 [project.entry-points."jbpy.extensions.tre"]
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"

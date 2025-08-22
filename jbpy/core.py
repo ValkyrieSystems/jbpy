@@ -13,15 +13,13 @@ types (int, str, etc...) and serializes to the BIIF format behind the scenes.
 """
 
 import abc
-import argparse
 import collections.abc
-from collections.abc import Callable, Iterable
 import datetime
 import importlib.metadata
 import logging
 import os
-import pathlib
 import re
+from collections.abc import Callable, Iterable
 from typing import Any, Iterator, Self
 
 logger = logging.getLogger(__name__)
@@ -2275,7 +2273,7 @@ class GraphicSubheader(Group):
                 20,
                 ECSA,
                 AnyRange(),
-                StringAscii,
+                StringISO8859_1,
                 default="",
             )
         )
@@ -3464,19 +3462,3 @@ def tre_factory(tretag: str) -> Tre:
         return tres[tretag]()
 
     return UnknownTre(tretag)
-
-
-def main(args=None):
-    parser = argparse.ArgumentParser(description="Display JBP Header content")
-    parser.add_argument("filename", type=pathlib.Path, help="Path to JBP file")
-    config = parser.parse_args(args)
-
-    bf = Jbp()
-    with config.filename.open("rb") as fd:
-        bf.load(fd)
-
-    bf.print()
-
-
-if __name__ == "__main__":
-    main()

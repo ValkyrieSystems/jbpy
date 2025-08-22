@@ -1,27 +1,16 @@
 import os
-import pathlib
 
 import pytest
 
 import jbpy
-
-
-def find_jitcs_test_files():
-    # See https://jitc.fhu.disa.mil/projects/nitf/testdata.aspx
-    root_dir = os.environ.get("JBPY_JITC_QUICKLOOK_DIR")
-    files = []
-    if root_dir is not None:
-        root_dir = pathlib.Path(root_dir)
-        files += list(root_dir.glob("**/*POS*.NTF"))
-        files += list(root_dir.glob("**/*POS*.ntf"))
-    return files
+import test.utils
 
 
 @pytest.mark.skipif(
     "JBPY_JITC_QUICKLOOK_DIR" not in os.environ,
     reason="requires JITC Quick-Look data",
 )
-@pytest.mark.parametrize("filename", find_jitcs_test_files())
+@pytest.mark.parametrize("filename", test.utils.find_jitcs_test_files())
 def test_roundtrip_jitc_quicklook(filename, tmp_path):
     ntf = jbpy.Jbp()
     with filename.open("rb") as file:
