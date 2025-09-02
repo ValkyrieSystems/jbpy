@@ -51,6 +51,13 @@ dev = [
     "ruff",
     "pytest",
     "smart_open[http]",
+    "numpy",
+]
+
+# Dependencies needed to run the examples
+examples = [
+    "numpy",
+    "pillow",
 ]
 
 [project.urls]
