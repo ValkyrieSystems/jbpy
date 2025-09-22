@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import jbpy
+import jbpy.examples.extract_nitf_image
 import jbpy.image_data
 
 
@@ -56,11 +57,11 @@ def test_read_mask_table():
         assert subheader["NBANDS"].value == 1
 
         mask_table = jbpy.image_data.read_mask_table(jbp["ImageSegments"][1], file)
-        assert len(mask_table["BMRnBNDm"]) == 1
-        assert (
-            len(mask_table["BMRnBNDm"][0])
-            == subheader["NBPC"].value * subheader["NBPR"].value
-        )
+        bmr_fields = list(mask_table.find_all("BMR\\d+BND\\d+"))
+        assert len(bmr_fields) == subheader["NBPC"].value * subheader["NBPR"].value
+        assert all(
+            [field.name.endswith("00000") for field in bmr_fields]
+        )  # single band
         block_size = (
             subheader["NPPBV"].value
             * subheader["NPPBV"].value
@@ -68,18 +69,18 @@ def test_read_mask_table():
             // 8
         )
         included_offsets = [
-            offset
-            for offset in mask_table["BMRnBNDm"][0]
-            if offset != jbpy.image_data.BLOCK_NOT_RECORDED
+            field.value
+            for field in bmr_fields
+            if field.value != jbpy.image_data.BLOCK_NOT_RECORDED
         ]
 
         assert len(included_offsets) < len(
-            mask_table["BMRnBNDm"][0]
+            bmr_fields
         )  # make sure this dataset omits a block
 
         assert (
             jbp["FileHeader"]["LI002"].value
-            == block_size * len(included_offsets) + mask_table["IMDATOFF"]
+            == block_size * len(included_offsets) + mask_table["IMDATOFF"].value
         )
         assert np.all(np.diff(included_offsets) % block_size) == 0
 
@@ -142,11 +143,10 @@ def test_block_info_uncompressed():
         )
         assert len(block_infos) == (subheader["NBPC"].value * subheader["NBPR"].value)
 
-        assert block_infos[0]["block_index"] == (0, 0, 0)
-        assert (
-            block_infos[0]["offset"]
-            == jbp["ImageSegments"][1]["Data"].get_offset() + mask_table["IMDATOFF"]
-        )
+        assert block_infos[0]["block_band_index"] == 0
+        assert block_infos[0]["block_row_index"] == 0
+        assert block_infos[0]["block_col_index"] == 0
+        assert block_infos[0]["offset"] == mask_table["IMDATOFF"].value
         assert (
             block_infos[0]["nbytes"]
             == subheader["NPPBH"].value
@@ -183,8 +183,8 @@ def test_block_info_uncompressed():
         assert block_infos[0]["fill_rows"] == 0
         assert block_infos[0]["fill_cols"] == 0
 
-        assert block_infos[0]["has_pad"] == (mask_table["TMRLNTH"] == 4)
-        assert block_infos[0]["pad_value"] == mask_table["TPXCD"]
+        assert block_infos[0]["has_pad"] == (mask_table["TMRLNTH"].value == 4)
+        assert block_infos[0]["pad_value"] == mask_table["TPXCD"].value
 
         assert block_infos[-1]["image_slicing"][0].start is None
         assert block_infos[-1]["image_slicing"][0].stop is None
@@ -212,3 +212,113 @@ def test_block_info_uncompressed():
         )
         assert block_infos[-1]["fill_rows"] == row_fill
         assert block_infos[-1]["fill_cols"] == col_fill
+
+
+@pytest.mark.parametrize("with_block_mask", (False, True))
+@pytest.mark.parametrize("imode", ("B", "R", "P", "S"))
+def test_blocked_rgb_image(with_block_mask, imode, tmp_path):
+    image = np.random.default_rng(123).integers(
+        0, 255, size=(321, 451, 3), dtype=np.uint8
+    )
+    block_shape = np.ceil((np.asarray(image.shape[:2]) + 1) / (4, 5)).astype(int)
+    num_bands = 3
+    assert image.shape[-1] == num_bands
+    assert np.all((image.shape[:2] % block_shape) > 0)  # require fill
+    num_blocks = np.ceil(image.shape[:2] / block_shape).astype(np.uint32)
+    band_axis = {"B": 0, "R": 1, "P": 2, "S": 0}[imode]
+    array = np.moveaxis(image, -1, band_axis)
+    expected = np.zeros_like(array)
+
+    jbp = jbpy.Jbp()
+    jbp["FileHeader"]["NUMI"].value = 1
+    subhdr = jbp["ImageSegments"][0]["subheader"]
+    subhdr["NROWS"].value = image.shape[0]
+    subhdr["NCOLS"].value = image.shape[1]
+    subhdr["IREP"].value = "RGB"
+    subhdr["NBANDS"].value = num_bands
+    subhdr["IREPBAND00001"].value = "R"
+    subhdr["IREPBAND00002"].value = "G"
+    subhdr["IREPBAND00003"].value = "B"
+    subhdr["IMODE"].value = imode
+    if with_block_mask:
+        subhdr["IC"].value = "NM"
+    else:
+        subhdr["IC"].value = "NC"
+    subhdr["PVTYPE"].value = "INT"
+    subhdr["NBPP"].value = 8
+    subhdr["ABPP"].value = 8
+    subhdr["NPPBV"].value = block_shape[0]
+    subhdr["NPPBH"].value = block_shape[1]
+    subhdr["NBPC"].value = num_blocks[0]
+    subhdr["NBPR"].value = num_blocks[1]
+
+    mask_table = jbpy.image_data.MaskTable("mask", subhdr)
+    mask_table["BMRLNTH"].value = 4
+
+    block_info = jbpy.image_data.nominal_block_info(subhdr)
+    num_expected_blocks = np.prod(num_blocks)
+    if imode == "S":
+        num_expected_blocks *= num_bands
+    assert len(block_info) == num_expected_blocks
+
+    included_block_info = []
+    offset = 0
+    for count, info in enumerate(block_info):
+        block_index = (
+            info["block_col_index"] + info["block_row_index"] * subhdr["NBPR"].value
+        )
+
+        bmr_name = mask_table.bmr_name(block_index, info["block_band_index"])
+
+        omit = False
+        if with_block_mask:
+            if imode == "S":
+                if info["block_band_index"] == 0:  # RED
+                    if info["block_row_index"] == info["block_col_index"]:
+                        omit = True
+                if info["block_band_index"] == 1:  # GREEN
+                    if info["block_row_index"] % 2 == 0:
+                        omit = True
+                if info["block_band_index"] == 2:  # BLUE
+                    if info["block_col_index"] % 3 == 0:
+                        omit = True
+            else:
+                omit = count % 3 == 0
+
+        if with_block_mask and omit:
+            mask_table[bmr_name].value = jbpy.image_data.BLOCK_NOT_RECORDED
+        else:
+            expected[info["image_slicing"]] = array[info["image_slicing"]]
+            included_block_info.append(info)
+            mask_table[bmr_name].value = offset
+            offset += info["nbytes"]
+
+    mask_table["IMDATOFF"].value = mask_table.get_size()
+
+    if with_block_mask:
+        jbp["FileHeader"]["LI001"].value = (
+            len(included_block_info) * block_info[0]["nbytes"] + mask_table.get_size()
+        )
+    else:
+        jbp["FileHeader"]["LI001"].value = (
+            len(included_block_info) * block_info[0]["nbytes"]
+        )
+    filename = tmp_path / "blocked.ntf"
+    jbp.finalize()
+    with filename.open("wb") as file:
+        jbp.dump(file)
+        file.seek(jbp["ImageSegments"][0]["Data"].get_offset(), os.SEEK_SET)
+        if with_block_mask:
+            mask_table.dump(file)
+        for info in included_block_info:
+            block = np.zeros(info["shape"], dtype=info["typestr"])
+            block[info["block_slicing"]] = array[info["image_slicing"]]
+            file.write(block.tobytes())
+
+    with filename.open("rb") as file:
+        jbp2 = jbpy.Jbp()
+        jbp2.load(file)
+        read_array, _ = jbpy.examples.extract_nitf_image.read_entire_image_uncompressed(
+            jbp2["ImageSegments"][0], file
+        )
+        np.testing.assert_array_equal(read_array, expected)

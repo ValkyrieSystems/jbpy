@@ -1,5 +1,6 @@
 """Functions for handling image segment data"""
 
+import copy
 import itertools
 import math
 import os
@@ -36,16 +37,204 @@ def array_protocol_typestr(pvtype: str, nbpp: int) -> str:
     return dtype_str
 
 
-class MaskTable(typing.TypedDict):
-    "JBP Image Data Mask Table"
+class BinaryUnsignedInteger(jbpy.core.PythonConverter):
+    """convert to/from a binary integer"""
 
-    IMDATOFF: int
-    BMRLNTH: int
-    TMRLNTH: int
-    TPXCDLNTH: int
-    TPXCD: bytes | None
-    BMRnBNDm: list[list[int]] | None  # indexed[m][n]
-    TMRnBNDm: list[list[int]] | None  # indexed[m][n]
+    def to_bytes_impl(self, decoded_value: int) -> bytes:
+        decoded_value = int(decoded_value)
+        return decoded_value.to_bytes(self.size, byteorder="big", signed=False)
+
+    def from_bytes_impl(self, encoded_value: bytes) -> int:
+        return int.from_bytes(encoded_value, byteorder="big", signed=False)
+
+
+# MaskTable is defined here rather than in jbpy.core because jbpy.core's existing callback
+# support makes it difficult to keep MaskTable updated when NBPR, NBPC, NBANDS, and XBANDS change.
+# As a result it doesn't behave quite like the other Groups.
+class MaskTable(jbpy.core.Group):
+    """JBP Image Data Mask Table
+
+    Arguments
+    ---------
+    name : str
+        Name to give this group
+    image_subheader : jbpy.core.ImageSubheader
+        Subheader for the image segment containing the mask table
+
+    Notes
+    -----
+    image_subheader must not change after initializing this class.
+
+    """
+
+    def __init__(self, name: str, image_subheader: jbpy.core.ImageSubheader):
+        super().__init__(name)
+        self._num_blocks = image_subheader["NBPC"].value * image_subheader["NBPR"].value
+
+        if image_subheader["IMODE"].value == "S":
+            # Each band is stored as a separate block
+            self._num_bands = image_subheader.get(
+                "XBANDS", image_subheader["NBANDS"]
+            ).value
+        else:
+            self._num_bands = 1
+
+        self._append(
+            jbpy.core.Field(
+                "IMDATOFF",
+                "Blocked Image Data Offset",
+                4,
+                None,
+                jbpy.core.AnyRange(),
+                BinaryUnsignedInteger,
+                default=0,
+            )
+        )
+        self._append(
+            jbpy.core.Field(
+                "BMRLNTH",
+                "Block Mask Record Length",
+                2,
+                None,
+                jbpy.core.Enum([0, 4]),
+                BinaryUnsignedInteger,
+                default=0,
+                setter_callback=self._handle_bmrlnth,
+            )
+        )
+        self._append(
+            jbpy.core.Field(
+                "TMRLNTH",
+                "Pad Pixel Mask Record Length",
+                2,
+                None,
+                jbpy.core.Enum([0, 4]),
+                BinaryUnsignedInteger,
+                default=0,
+                setter_callback=self._handle_tmrlnth,
+            )
+        )
+        self._append(
+            jbpy.core.Field(
+                "TPXCDLNTH",
+                "Pad Output Pixel Code Length",
+                2,
+                None,
+                jbpy.core.AnyRange(),
+                BinaryUnsignedInteger,
+                default=0,
+                setter_callback=self._handle_tpxcdlnth,
+            )
+        )
+
+    def _handle_bmrlnth(self, field):
+        self._remove_all("BMR\\d+BND\\d+")
+        if field.value == 0:
+            return
+
+        after = self["TPXCDLNTH"]
+        if "TPXCD" in self:
+            after = self["TPXCD"]
+
+        for band_idx in range(self._num_bands):
+            for block_idx in range(self._num_blocks):
+                name = self.bmr_name(block_idx, band_idx)
+                after = self._insert_after(
+                    after,
+                    jbpy.core.Field(
+                        name,
+                        f"Block {block_idx}, Band {band_idx} Offset",
+                        4,
+                        None,
+                        jbpy.core.AnyRange(),
+                        BinaryUnsignedInteger,
+                        default=0,
+                    ),
+                )
+
+    def _handle_tmrlnth(self, field):
+        self._remove_all("TMR\\d+BND\\d+")
+        if field.value == 0:
+            return
+
+        after = self["TPXCDLNTH"]
+        if "TPXCD" in self:
+            after = self["TPXCD"]
+
+        for bmr_field in self.find_all("BMR\\d+BND\\d+"):
+            if bmr_field.get_offset() > after.get_offset():
+                after = bmr_field
+
+        for band_idx in range(self._num_bands):
+            for block_idx in range(self._num_blocks):
+                name = self.tmr_name(block_idx, band_idx)
+                after = self._insert_after(
+                    after,
+                    jbpy.core.Field(
+                        name,
+                        f"Pad Pixel {block_idx}, Band {band_idx}",
+                        4,
+                        None,
+                        jbpy.core.AnyRange(),
+                        BinaryUnsignedInteger,
+                        default=0,
+                    ),
+                )
+
+    def _handle_tpxcdlnth(self, field):
+        self._remove_all("TPXCD")
+        tpxcd_length = int(math.ceil(field.value / 8))
+        if tpxcd_length > 0:
+            self._insert_after(
+                field,
+                jbpy.core.Field(
+                    "TPXCD",
+                    "Pad Output Pixel Code",
+                    tpxcd_length,
+                    None,
+                    jbpy.core.AnyRange(),
+                    jbpy.core.Bytes,
+                    default=b"",
+                ),
+            )
+
+    @staticmethod
+    def bmr_name(block_index: int, band_index: int) -> str:
+        """Generate the expected name for BMRnBNDm given indices
+
+        Arguments
+        ---------
+        block_index : int
+            Linear index of the block (zero-based).  "n"
+        band_index : int
+            Index of the band (zero-based).  "m"
+
+        Returns
+        -------
+        str
+            Field name
+
+        """
+        return f"BMR{block_index:08d}BND{band_index:05d}"
+
+    @staticmethod
+    def tmr_name(block_index: int, band_index: int) -> str:
+        """Generate the expected name for TMRnBNDm given indices
+
+        Arguments
+        ---------
+        block_index : int
+            Linear index of the block (one-based).  "n"
+        band_index : int
+            Index of the band (one-based).  "m"
+
+        Returns
+        -------
+        str
+            Field name
+
+        """
+        return f"TMR{block_index:08d}BND{band_index:05d}"
 
 
 def read_mask_table(
@@ -64,50 +253,10 @@ def read_mask_table(
     -------
     dictionary containing the mask table values or None if there is no mask table
     """
-    subhdr = image_segment["subheader"]
     file.seek(image_segment["Data"].get_offset(), os.SEEK_SET)
-    imdatoff = int.from_bytes(file.read(4), "big", signed=False)
-    bmrlnth = int.from_bytes(file.read(2), "big", signed=False)
-    tmrlnth = int.from_bytes(file.read(2), "big", signed=False)
-    tpxcdlnth = int.from_bytes(file.read(2), "big", signed=False)
-    if tpxcdlnth > 0:
-        tpxcd_size = int(math.ceil(tpxcdlnth / 8))
-        tpxcd = file.read(tpxcd_size)
-    else:
-        tpxcd = None
-
-    num_blocks = subhdr["NBPR"].value * subhdr["NBPC"].value
-    num_bands = subhdr.get("XBANDS", subhdr["NBANDS"]).value
-
-    bmrnbndm: list[list[int]] | None = None
-    if bmrlnth == 4:
-        bmrnbndm = []  # will be indexed [m][n]
-        # From JBP: "Increment n prior to m"
-        for band in range(num_bands):
-            bmrnbndm.append([])
-            for _ in range(num_blocks):
-                bmrnbndm[band].append(int.from_bytes(file.read(4), "big", signed=False))
-
-    tmrnbndm: list[list[int]] | None = None
-    if tmrlnth == 4:
-        tmrnbndm = []  # will be indexed [m][n]
-        # From JBP: "Increment n prior to m"
-        for band in range(num_bands):
-            tmrnbndm.append([])
-            for _ in range(num_blocks):
-                tmrnbndm[band].append(int.from_bytes(file.read(4), "big", signed=False))
-
-    result: MaskTable = {
-        "IMDATOFF": imdatoff,
-        "BMRLNTH": bmrlnth,
-        "TMRLNTH": tmrlnth,
-        "TPXCDLNTH": tpxcdlnth,
-        "TPXCD": tpxcd,
-        "BMRnBNDm": bmrnbndm,
-        "TMRnBNDm": tmrnbndm,
-    }
-
-    return result
+    mt = MaskTable("MaskTable", image_segment["subheader"])
+    mt.load(file)
+    return mt
 
 
 IMPLEMENTED_PIXEL_TYPES = [  # (PVTYPE, NBPP)
@@ -181,10 +330,16 @@ Slice3DType = tuple[slice | int, slice | int, slice | int]
 class BlockInfo(typing.TypedDict):
     """Information describing a single image data block"""
 
-    #: unique index of this block specified as (band, row, col)
-    block_index: tuple[int, int, int]
+    #: band index of this block.  Zero unless IMODE == S
+    block_band_index: int
 
-    #: Offset to first byte of the block relative to the start of the file
+    #: row index of this block
+    block_row_index: int
+
+    #: col index of this block
+    block_col_index: int
+
+    #: Offset to first byte of the block relative to the start of the image data
     offset: int | None
 
     #: Size of the block in bytes (including fill pixels)
@@ -237,10 +392,38 @@ def block_info_uncompressed(
     """
     subhdr = image_segment["subheader"]
     assert subhdr["IC"].value in ("NC", "NM")
-    assert (subhdr["PVTYPE"].value, subhdr["NBPP"].value) in IMPLEMENTED_PIXEL_TYPES
 
-    num_image_bands = subhdr.get("XBANDS", subhdr["NBANDS"]).value
-    if subhdr["IMODE"].value == "S":
+    block_info = nominal_block_info(subhdr)
+
+    mask_table = None
+    if "M" in subhdr["IC"].value:
+        assert file is not None
+        mask_table = read_mask_table(image_segment, file)
+        block_info = apply_mask_table_to_block_info(subhdr, block_info, mask_table)
+
+    return block_info
+
+
+def nominal_block_info(image_subheader: jbpy.core.ImageSubheader) -> list[BlockInfo]:
+    """Create a list of block information assuming an image is uncompressed and unmasked (IC=NC)
+
+    Arguments
+    ---------
+    image_subheader : jbpy.core.ImageSubheader
+        Subheader of the image to describe
+
+    Returns
+    -------
+    list of BlockInfo dictionaries
+    """
+
+    assert (
+        image_subheader["PVTYPE"].value,
+        image_subheader["NBPP"].value,
+    ) in IMPLEMENTED_PIXEL_TYPES
+
+    num_image_bands = image_subheader.get("XBANDS", image_subheader["NBANDS"]).value
+    if image_subheader["IMODE"].value == "S":
         # Each band is stored as a separate block
         num_bands_in_block = 1
         num_block_bands = num_image_bands
@@ -248,53 +431,62 @@ def block_info_uncompressed(
         num_bands_in_block = num_image_bands
         num_block_bands = 1
 
-    rows_per_block = subhdr["NPPBV"].value or subhdr["NROWS"].value
-    cols_per_block = subhdr["NPPBH"].value or subhdr["NCOLS"].value
-    expected_blocks_per_col = int(math.ceil(subhdr["NROWS"].value / rows_per_block))
-    expected_blocks_per_row = int(math.ceil(subhdr["NCOLS"].value / cols_per_block))
+    rows_per_block = image_subheader["NPPBV"].value or image_subheader["NROWS"].value
+    cols_per_block = image_subheader["NPPBH"].value or image_subheader["NCOLS"].value
+    expected_blocks_per_col = int(
+        math.ceil(image_subheader["NROWS"].value / rows_per_block)
+    )
+    expected_blocks_per_row = int(
+        math.ceil(image_subheader["NCOLS"].value / cols_per_block)
+    )
 
-    if expected_blocks_per_col != subhdr["NBPC"].value:
+    if expected_blocks_per_col != image_subheader["NBPC"].value:
         raise RuntimeError(
-            f"Image segment has {subhdr['NBPC'].value} vertical blocks, expected {expected_blocks_per_col}"
+            f"Image segment has {image_subheader['NBPC'].value} vertical blocks, expected {expected_blocks_per_col}"
         )
-    if expected_blocks_per_row != subhdr["NBPR"].value:
+    if expected_blocks_per_row != image_subheader["NBPR"].value:
         raise RuntimeError(
-            f"Image segment has {subhdr['NBPR'].value} horizontal blocks, expected {expected_blocks_per_row}"
+            f"Image segment has {image_subheader['NBPR'].value} horizontal blocks, expected {expected_blocks_per_row}"
         )
 
-    num_fill_rows = (rows_per_block * expected_blocks_per_col) - subhdr["NROWS"].value
-    num_fill_cols = (cols_per_block * expected_blocks_per_row) - subhdr["NCOLS"].value
+    num_fill_rows = (rows_per_block * expected_blocks_per_col) - image_subheader[
+        "NROWS"
+    ].value
+    num_fill_cols = (cols_per_block * expected_blocks_per_row) - image_subheader[
+        "NCOLS"
+    ].value
 
     if num_fill_rows < 0 or num_fill_cols < 0:
         raise RuntimeError("Image segment is missing blocks")
 
     # Will not work for NBPP == 12
     block_nbytes = (
-        num_bands_in_block * rows_per_block * cols_per_block * subhdr["NBPP"].value // 8
+        num_bands_in_block
+        * rows_per_block
+        * cols_per_block
+        * image_subheader["NBPP"].value
+        // 8
     )
 
-    mask_table = None
-    if "M" in subhdr["IC"].value:
-        assert file is not None
-        mask_table = read_mask_table(image_segment, file)
-
     blocks = []
-    image_offset = image_segment["Data"].get_offset()
-    for block_counter, block_index in enumerate(
+    for block_counter, block_indices in enumerate(
         itertools.product(
             range(num_block_bands),
-            range(subhdr["NBPC"].value),
-            range(subhdr["NBPR"].value),
+            range(image_subheader["NBPC"].value),
+            range(image_subheader["NBPR"].value),
         )
     ):
-        block_band, block_row, block_col = block_index
-
-        start_row = block_row * rows_per_block
-        start_col = block_col * cols_per_block
+        block_band_index, block_row_index, block_col_index = block_indices
+        start_row = block_row_index * rows_per_block
+        start_col = block_col_index * cols_per_block
 
         # how much fill is in this block
-        fill_rows = num_fill_rows if block_row == subhdr["NBPC"].value - 1 else 0
-        fill_cols = num_fill_cols if block_col == subhdr["NBPR"].value - 1 else 0
+        fill_rows = (
+            num_fill_rows if block_row_index == image_subheader["NBPC"].value - 1 else 0
+        )
+        fill_cols = (
+            num_fill_cols if block_col_index == image_subheader["NBPR"].value - 1 else 0
+        )
         image_slice_rows = slice(start_row, start_row + rows_per_block - fill_rows)
         image_slice_cols = slice(start_col, start_col + cols_per_block - fill_cols)
         block_slice_rows = slice(0, rows_per_block - fill_rows)
@@ -302,7 +494,7 @@ def block_info_uncompressed(
 
         image_slicing: Slice3DType
         block_slicing: Slice3DType
-        if subhdr["IMODE"].value == "P":
+        if image_subheader["IMODE"].value == "P":
             shape = (rows_per_block, cols_per_block, num_image_bands)
             image_slicing = (
                 image_slice_rows,
@@ -315,7 +507,7 @@ def block_info_uncompressed(
                 slice(None, None),  # all bands
             )
             band_axis = 2
-        elif subhdr["IMODE"].value == "B":
+        elif image_subheader["IMODE"].value == "B":
             shape = (num_image_bands, rows_per_block, cols_per_block)
             image_slicing = (
                 slice(None, None),  # all bands
@@ -328,7 +520,7 @@ def block_info_uncompressed(
                 block_slice_cols,
             )
             band_axis = 0
-        elif subhdr["IMODE"].value == "R":
+        elif image_subheader["IMODE"].value == "R":
             shape = (rows_per_block, num_image_bands, cols_per_block)
             image_slicing = (
                 image_slice_rows,
@@ -341,15 +533,15 @@ def block_info_uncompressed(
                 block_slice_cols,
             )
             band_axis = 1
-        elif subhdr["IMODE"].value == "S":
+        elif image_subheader["IMODE"].value == "S":
             shape = (1, rows_per_block, cols_per_block)
             image_slicing = (
-                block_band,  # single band
+                block_band_index,  # single band
                 image_slice_rows,
                 image_slice_cols,
             )
             block_slicing = (
-                block_band,  # single band
+                0,  # each block contains only a single band
                 block_slice_rows,
                 block_slice_cols,
             )
@@ -357,12 +549,14 @@ def block_info_uncompressed(
 
         # Nominal description for unmasked/unpadded data, "NC"
         info: BlockInfo = {
-            "block_index": block_index,  # block_band, block_row, block_col
-            "offset": image_offset + block_nbytes * block_counter,
+            "block_band_index": block_band_index,
+            "block_row_index": block_row_index,
+            "block_col_index": block_col_index,
+            "offset": block_nbytes * block_counter,
             "nbytes": block_nbytes,
             "shape": shape,
             "typestr": array_protocol_typestr(
-                subhdr["PVTYPE"].value, subhdr["NBPP"].value
+                image_subheader["PVTYPE"].value, image_subheader["NBPP"].value
             ),
             "image_slicing": image_slicing,
             "block_slicing": block_slicing,
@@ -372,32 +566,62 @@ def block_info_uncompressed(
             "pad_value": None,
             "band_axis": band_axis,
         }
-
-        # Update description for masked data.  "NM"
-        if mask_table is not None:
-            # mask tables are inserted immediately before the pixel data
-            assert info["offset"] is not None
-            info["offset"] += mask_table["IMDATOFF"]
-
-            n = block_row * subhdr["NBPR"].value + block_col
-            m = block_band
-            if mask_table["TPXCD"] is not None:
-                info["pad_value"] = mask_table["TPXCD"]
-            if mask_table["BMRnBNDm"] is not None:
-                if (
-                    mask_table["BMRnBNDm"][m][n] == BLOCK_NOT_RECORDED
-                ):  # block is omitted from file
-                    info["offset"] = None
-                    info["nbytes"] = 0
-                else:
-                    info["offset"] = (
-                        image_offset
-                        + mask_table["IMDATOFF"]
-                        + mask_table["BMRnBNDm"][m][n]
-                    )
-            if mask_table["TMRnBNDm"] is not None:
-                info["has_pad"] = mask_table["TMRnBNDm"][m][n] != BLOCK_NOT_RECORDED
-
         blocks.append(info)
 
     return blocks
+
+
+def apply_mask_table_to_block_info(
+    image_subheader: jbpy.core.ImageSubheader,
+    block_info: list[BlockInfo],
+    mask_table: MaskTable,
+) -> list[BlockInfo]:
+    """Return a copy of a block_info list with information from a mask table applied
+
+    Arguments
+    ---------
+    image_subheader : jbpy.core.ImageSubheader
+        Subheader of the image to describe
+    block_info : list of BlockInfo
+        Input BlockInfo dictionaries
+    mask_table : MaskTable
+        Mask Table from the image segment
+
+    Returns
+    -------
+    list of BlockInfo dictionaries
+    """
+    assert "M" in image_subheader["IC"].value
+
+    block_info = copy.deepcopy(block_info)
+
+    # Update description for masked data.  "NM"
+    for info in block_info:
+        # mask tables are inserted immediately before the pixel data
+        assert info["offset"] is not None
+        info["offset"] += mask_table["IMDATOFF"].value
+
+        n = (
+            info["block_row_index"] * image_subheader["NBPR"].value
+            + info["block_col_index"]
+        )
+        m = info["block_band_index"]
+        if "TPXCD" in mask_table:
+            info["pad_value"] = mask_table["TPXCD"].value
+
+        bmr_name = mask_table.bmr_name(n, m)
+        if bmr_name in mask_table:
+            if (
+                mask_table[bmr_name].value == BLOCK_NOT_RECORDED
+            ):  # block is omitted from file
+                info["offset"] = None
+                info["nbytes"] = 0
+            else:
+                info["offset"] = (
+                    +mask_table["IMDATOFF"].value + mask_table[bmr_name].value
+                )
+        tmr_name = mask_table.tmr_name(n, m)
+        if tmr_name in mask_table:
+            info["has_pad"] = mask_table[tmr_name].value != BLOCK_NOT_RECORDED
+
+    return block_info
