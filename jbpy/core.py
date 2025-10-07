@@ -253,6 +253,9 @@ BCSN_PI = "\x30-\x39"
 # UTF-8
 U8 = "\x00-\xff"
 
+# All the spaces
+BCSA_SPACE = ECSA_SPACE = "\x20"
+
 
 class RangeCheck:
     """Base Class for checking the range of a JBP field"""
@@ -357,15 +360,15 @@ PATTERN_YY = "[0-9]{2}"
 PATTERN_MM = "(0[1-9]|1[0-2])"  # MM
 PATTERN_DD = "(0[1-9]|[12][0-9]|3[0-1])"  # DD
 PATTERN_HH = "([0-1][0-9]|2[0-3])"  # hh
-PATTERN_MM = "([0-5][0-9])"  # mm
-PATTERN_SS = "([0-5][0-9]|60)"  # ss
+PATTERN_mm = "([0-5][0-9])"  # mm
+PATTERN_SS = "([0-5][0-9])"  # ss
 DATETIME_REGEX = Regex(
     f"({PATTERN_CC}|--)"
     + f"({PATTERN_YY}|--)"
     + f"({PATTERN_MM}|--)"
     + f"({PATTERN_DD}|--)"
     + f"({PATTERN_HH}|--)"
-    + f"({PATTERN_MM}|--)"
+    + f"({PATTERN_mm}|--)"
     + f"({PATTERN_SS}|--)"
 )
 DATE_REGEX = Regex(PATTERN_CC + PATTERN_YY + PATTERN_MM + PATTERN_DD)
@@ -443,7 +446,6 @@ class JbpIOComponent:
 
     def finalize(self):
         """Perform any necessary final updates"""
-        pass
 
     def as_filelike(self, file: BinaryFile_R) -> SubFile:
         """Create file object containing just this component
@@ -3339,7 +3341,7 @@ class Tre(Group):
     Arguments
     ---------
     identifier : str
-        identifier of the TRE.  Must be exactly 6 characters.
+        identifier of the TRE.  Must be 1-6 characters.
     tretag_rename : str
         Alternative to give the 'TRETAG' field
     trel_rename : str
@@ -3360,12 +3362,11 @@ class Tre(Group):
         trel_rename: str = "TREL",
         length_constraint: RangeCheck | None = None,
     ):
-        if len(identifier) != 6:
-            raise ValueError(
-                f"TRE identifier '{identifier}' must be exactly 6 characters"
-            )
+        if not (1 <= len(identifier) <= 6):
+            raise ValueError(f"TRE identifier '{identifier}' must be 1-6 characters")
 
-        super().__init__(identifier)
+        ident_rstrip = identifier.rstrip(" ")
+        super().__init__(ident_rstrip)
         self.tretag_rename = tretag_rename
         self.trel_rename = trel_rename
 
@@ -3378,9 +3379,9 @@ class Tre(Group):
                 "Unique Extension Type Identifier",
                 6,
                 BCSA,
-                Constant(identifier),
+                Constant(ident_rstrip),
                 StringAscii,
-                default=identifier,
+                default=ident_rstrip,
             )
         )
 

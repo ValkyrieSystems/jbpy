@@ -29,6 +29,10 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
 
 def test_available_tres():
     all_tres = jbpy.available_tres()
-    assert "SECTGA" in all_tres
+    expected_tres = (
+        "SECTGA",
+        "STDIDC",
+    )
+    assert set(all_tres).issuperset(expected_tres)
     for trename in all_tres:
         assert isinstance(jbpy.tre_factory(trename), all_tres[trename])

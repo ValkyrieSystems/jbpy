@@ -62,3 +62,4 @@ jbpdump = "jbpy._jbpdump:main"
 
 [project.entry-points."jbpy.extensions.tre"]
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"
+STDIDC = "jbpy.extensions.tre.STDIDC:STDIDC"
