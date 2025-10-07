@@ -2697,7 +2697,10 @@ class DataExtensionSubheader(Group):
 
     def _desshl_handler(self, field: Field) -> None:
         self._remove_all("DESSHF")
-        self._insert_after(field, DESSHF_Factory(self["DESID"], self["DESVER"], field))
+        if field.value > 0:
+            self._insert_after(
+                field, DESSHF_Factory(self["DESID"], self["DESVER"], field)
+            )
 
 
 class DataExtensionSegment(Group):

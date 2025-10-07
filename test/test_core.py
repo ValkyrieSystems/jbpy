@@ -370,6 +370,8 @@ def test_deseg():
     subheader["DESVER"].value = 1
     subheader["DESCLAS"].value = "U"
     assert "DESSHF" not in subheader
+    subheader["DESSHL"].value = 0
+    assert "DESSHF" not in subheader
     subheader["DESSHL"].value = 10
     assert subheader["DESSHF"].size == 10
     subheader["DESSHF"].value = "abcd"
@@ -382,8 +384,7 @@ def test_deseg():
     subheader["DESVER"].value = 1
 
     subheader["DESSHL"].value = 0
-    assert isinstance(subheader["DESSHF"], jbpy.core.XmlDataContentSubheader)
-    assert len(subheader["DESSHF"]) == 0
+    assert "DESSHF" not in subheader
 
     with pytest.raises(ValueError):
         subheader["DESSHL"].value = 1  # must exactly match a length of fields
