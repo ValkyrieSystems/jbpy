@@ -119,6 +119,27 @@ class SubFile:
         self._pos += len(data)
         return data
 
+    def readinto(self, b):
+        self._file.seek(self._start + self._pos)
+        num_read = self._file.readinto(b)
+        if num_read is not None:
+            self._pos += num_read
+        return num_read
+
+    def readline(self, size=-1):
+        self._file.seek(self._start + self._pos)
+        data = self._file.readline(size)
+        self._pos += len(data)
+        return data
+
+    def readlines(self, hint=-1):
+        self._file.seek(self._start + self._pos)
+        before = self._file.tell()
+        data = self._file.readlines(hint)
+        after = self._file.tell()
+        self._pos += after - before
+        return data
+
 
 class PythonConverter:
     """Class for converting between JBP field bytes and python types"""

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `readinto`, `readline`, and `readlines` methods to `SubFile`
+
 ### Fixed
 - Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
 
