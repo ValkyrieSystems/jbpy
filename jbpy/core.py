@@ -254,11 +254,12 @@ BCSN_PI = "\x30-\x39"
 U8 = "\x00-\xff"
 
 
-class RangeCheck:
+class RangeCheck(abc.ABC):
     """Base Class for checking the range of a JBP field"""
 
+    @abc.abstractmethod
     def isvalid(self, decoded_value: Any) -> bool:
-        raise NotImplementedError()
+        """Returns ``True`` if field satisfies range check."""
 
 
 class AnyRange(RangeCheck):
@@ -337,8 +338,8 @@ class AnyOf(RangeCheck):
         self.ranges = ranges
 
     def isvalid(self, decoded_value: Any) -> bool:
-        checks = [check.isvalid(decoded_value) for check in self.ranges]
-        return any(checks)
+        # Use any(generator) to ensure short circuit logic
+        return any(check.isvalid(decoded_value) for check in self.ranges)
 
 
 class Not(RangeCheck):

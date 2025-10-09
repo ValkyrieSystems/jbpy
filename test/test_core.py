@@ -153,6 +153,15 @@ def test_range_anyof():
     assert check.isvalid("B")
     assert not check.isvalid("C")
 
+    # AnyOf short-circuits
+    class RaisesError(jbpy.core.RangeCheck):
+        def isvalid(self, decoded_value):
+            raise ValueError()
+
+    with pytest.raises(Exception):
+        jbpy.core.AnyOf(RaisesError()).isvalid("A")
+    assert jbpy.core.AnyOf(jbpy.core.Constant("A"), RaisesError()).isvalid("A")
+
 
 def test_range_not():
     check = jbpy.core.Not(
