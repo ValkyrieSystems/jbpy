@@ -1580,41 +1580,6 @@ class FileHeader(Group):
         # Other length fields are handled by the parent Jbp class
 
 
-# Table A-2
-IMAGE_CATEGORIES = [
-    "BARO",
-    "BP",
-    "CAT",
-    "CP",
-    "CURRENT",
-    "DEPTH",
-    "DTEM",
-    "EO",
-    "FL",
-    "FP",
-    "HR",
-    "HS",
-    "IR",
-    "LEG",
-    "LOCG",
-    "MAP",
-    "MATR",
-    "MRI",
-    "MS",
-    "OP",
-    "PAT",
-    "RD",
-    "SAR",
-    "SARIQ",
-    "SL",
-    "TI",
-    "VD",
-    "VIS",
-    "WIND",
-    "XRAY",
-]
-
-
 class ImageSubheader(Group):
     """
     Image Subheader fields
@@ -1765,7 +1730,7 @@ class ImageSubheader(Group):
                 "Image Category",
                 8,
                 BCSA,
-                Enum(IMAGE_CATEGORIES),
+                AnyRange(),
                 StringAscii,
                 default="VIS",
             )
