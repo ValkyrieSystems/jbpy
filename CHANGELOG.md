@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `readinto`, `readline`, and `readlines` methods to `SubFile`
+- `py.typed` marker file
 
 ### Fixed
 - Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
