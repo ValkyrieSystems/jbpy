@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `readinto`, `readline`, and `readlines` methods to `SubFile`
 - `py.typed` marker file
+- TRE support: BLOCKA, STDIDC
 
 ### Changed
 - `AnyOf` now short-circuits
@@ -19,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
+- Minutes pattern no longer overwrites months pattern in `DATETIME_REGEX`
+- Prevent spurious warnings about TRE names shorter than 6 characters
 
 
 ## [0.2.0] - 2025-08-26
@@ -38,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Basic JBP functionality copied from SARkit's `_nitf_io.py`
+- TRE support: SECTGA
 
 [unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.1.0...v0.2.0
