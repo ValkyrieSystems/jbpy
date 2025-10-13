@@ -14,11 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `AnyOf` now short-circuits
 
-### Fixed
-- Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
-
 ### Removed
 - Unnecessary LSSHn and LTSHn callbacks
+
+### Fixed
+- Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
 
 
 ## [0.2.0] - 2025-08-26
