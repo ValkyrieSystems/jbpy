@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `readinto`, `readline`, and `readlines` methods to `SubFile`
+- `py.typed` marker file
+
+### Changed
+- `AnyOf` now short-circuits
+
+### Removed
+- Unnecessary LSSHn and LTSHn callbacks
 
 ### Removed
 - MIL-STD-2500C based `ICAT` enumeration. JBP uses the NTB Field Value Registry.

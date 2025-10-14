@@ -275,11 +275,12 @@ BCSN_PI = "\x30-\x39"
 U8 = "\x00-\xff"
 
 
-class RangeCheck:
+class RangeCheck(abc.ABC):
     """Base Class for checking the range of a JBP field"""
 
+    @abc.abstractmethod
     def isvalid(self, decoded_value: Any) -> bool:
-        raise NotImplementedError()
+        """Returns ``True`` if field satisfies range check."""
 
 
 class AnyRange(RangeCheck):
@@ -358,8 +359,8 @@ class AnyOf(RangeCheck):
         self.ranges = ranges
 
     def isvalid(self, decoded_value: Any) -> bool:
-        checks = [check.isvalid(decoded_value) for check in self.ranges]
-        return any(checks)
+        # Use any(generator) to ensure short circuit logic
+        return any(check.isvalid(decoded_value) for check in self.ranges)
 
 
 class Not(RangeCheck):
@@ -1019,14 +1020,10 @@ class FileHeader(Group):
         Function to call when LIn changes
     nums_callback: callable
         Function to call when NUMS changes
-    lsshn_callback: callable
-        Function to call when LSSHn changes
     lsn_callback: callable
         Function to call when LSn changes
     numt_callback: callable
         Function to call when NUMT changes
-    ltshn_callback: callable
-        Function to call when LTSHn changes
     ltn_callback: callable
         Function to call when LTn changes
     numdes_callback: callable
@@ -1052,10 +1049,8 @@ class FileHeader(Group):
         numi_callback: Callable | None = None,
         lin_callback: Callable | None = None,
         nums_callback: Callable | None = None,
-        lsshn_callback: Callable | None = None,
         lsn_callback: Callable | None = None,
         numt_callback: Callable | None = None,
-        ltshn_callback: Callable | None = None,
         ltn_callback: Callable | None = None,
         numdes_callback: Callable | None = None,
         ldn_callback: Callable | None = None,
@@ -1067,10 +1062,8 @@ class FileHeader(Group):
         self.numi_callback = numi_callback
         self.lin_callback = lin_callback
         self.nums_callback = nums_callback
-        self.lsshn_callback = lsshn_callback
         self.lsn_callback = lsn_callback
         self.numt_callback = numt_callback
-        self.ltshn_callback = ltshn_callback
         self.ltn_callback = ltn_callback
         self.numdes_callback = numdes_callback
         self.ldn_callback = ldn_callback
@@ -1380,7 +1373,6 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(258, 999_999),
                     Integer,
-                    setter_callback=self._lsshn_handler,
                     default=258,
                 ),
             )
@@ -1401,10 +1393,6 @@ class FileHeader(Group):
         if self.nums_callback:
             self.nums_callback(field)
 
-    def _lsshn_handler(self, field: Field) -> None:
-        if self.lsshn_callback:
-            self.lsshn_callback(field)
-
     def _lsn_handler(self, field: Field) -> None:
         if self.lsn_callback:
             self.lsn_callback(field)
@@ -1423,7 +1411,6 @@ class FileHeader(Group):
                     BCSN_PI,
                     MinMax(282, 999_999),
                     Integer,
-                    setter_callback=self._ltshn_handler,
                     default=282,
                 ),
             )
@@ -1443,10 +1430,6 @@ class FileHeader(Group):
 
         if self.numt_callback:
             self.numt_callback(field)
-
-    def _ltshn_handler(self, field: Field) -> None:
-        if self.ltshn_callback:
-            self.ltshn_callback(field)
 
     def _ltn_handler(self, field: Field) -> None:
         if self.ltn_callback:
@@ -2866,10 +2849,8 @@ class Jbp(Group):
                 numi_callback=self._numi_handler,
                 lin_callback=self._lin_handler,
                 nums_callback=self._nums_handler,
-                lsshn_callback=self._lsshn_handler,
                 lsn_callback=self._lsn_handler,
                 numt_callback=self._numt_handler,
-                ltshn_callback=self._ltshn_handler,
                 ltn_callback=self._ltn_handler,
                 numdes_callback=self._numdes_handler,
                 ldn_callback=self._ldn_handler,
@@ -2924,22 +2905,12 @@ class Jbp(Group):
     def _nums_handler(self, field: Field) -> None:
         self["GraphicSegments"].set_count(field.value)
 
-    def _lsshn_handler(self, field: Field) -> None:
-        # this callback should be removed if the Graphic Subheader is implemented
-        idx = int(field.name.removeprefix("LSSH")) - 1
-        self["GraphicSegments"][idx]["subheader"].size = field.value
-
     def _lsn_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LS")) - 1
         self["GraphicSegments"][idx]["Data"].size = field.value
 
     def _numt_handler(self, field: Field) -> None:
         self["TextSegments"].set_count(field.value)
-
-    def _ltshn_handler(self, field: Field) -> None:
-        # this callback should be removed if the Text Subheader is implemented
-        idx = int(field.name.removeprefix("LTSH")) - 1
-        self["TextSegments"][idx]["subheader"].size = field.value
 
     def _ltn_handler(self, field: Field) -> None:
         idx = int(field.name.removeprefix("LT")) - 1
