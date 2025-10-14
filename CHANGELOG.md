@@ -16,8 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Unnecessary LSSHn and LTSHn callbacks
-
-### Removed
 - MIL-STD-2500C based `ICAT` enumeration. JBP uses the NTB Field Value Registry.
 
 ### Fixed
