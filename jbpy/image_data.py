@@ -6,7 +6,6 @@ import math
 import os
 import typing
 
-import jbpy
 import jbpy.core
 
 BLOCK_NOT_RECORDED = 0xFFFFFFFF
