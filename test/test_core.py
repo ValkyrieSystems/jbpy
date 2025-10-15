@@ -5,6 +5,7 @@ import logging
 import os
 import pathlib
 import random
+import string
 import tempfile
 
 import pytest
@@ -152,6 +153,15 @@ def test_range_anyof():
     assert check.isvalid("A")
     assert check.isvalid("B")
     assert not check.isvalid("C")
+
+    # AnyOf short-circuits
+    class RaisesError(jbpy.core.RangeCheck):
+        def isvalid(self, decoded_value):
+            raise ValueError()
+
+    with pytest.raises(Exception):
+        jbpy.core.AnyOf(RaisesError()).isvalid("A")
+    assert jbpy.core.AnyOf(jbpy.core.Constant("A"), RaisesError()).isvalid("A")
 
 
 def test_range_not():
@@ -369,6 +379,8 @@ def test_deseg():
     subheader["DESVER"].value = 1
     subheader["DESCLAS"].value = "U"
     assert "DESSHF" not in subheader
+    subheader["DESSHL"].value = 0
+    assert "DESSHF" not in subheader
     subheader["DESSHL"].value = 10
     assert subheader["DESSHF"].size == 10
     subheader["DESSHF"].value = "abcd"
@@ -381,8 +393,7 @@ def test_deseg():
     subheader["DESVER"].value = 1
 
     subheader["DESSHL"].value = 0
-    assert isinstance(subheader["DESSHF"], jbpy.core.XmlDataContentSubheader)
-    assert len(subheader["DESSHF"]) == 0
+    assert "DESSHF" not in subheader
 
     with pytest.raises(ValueError):
         subheader["DESSHL"].value = 1  # must exactly match a length of fields
@@ -626,7 +637,12 @@ def test_as_filelike(tmp_path):
 
 def test_subfile(tmp_path):
     filename = tmp_path / "random.bin"
-    all_data = random.randbytes(1000)
+    all_data = bytearray(
+        "".join(random.choices(string.ascii_letters + string.digits, k=1000)).encode()
+    )
+    all_data[500] = ord("\n")
+    all_data[550] = ord("\n")
+    all_data[600] = ord("\n")
     filename.write_bytes(all_data)
 
     with filename.open("rb") as file:
@@ -654,3 +670,29 @@ def test_subfile(tmp_path):
         assert subfile.tell() == expected_pos
         subfile.seek(length + 100)
         assert subfile.read() == b""
+
+        expected_pos = 100
+        subfile.seek(expected_pos)
+        ba = bytearray(50)
+        assert subfile.readinto(ba) == len(ba)
+        assert ba == all_data[start + expected_pos : start + expected_pos + len(ba)]
+
+        expected_pos = 400
+        subfile.seek(expected_pos)
+        assert (
+            subfile.readline(3)
+            == all_data[start + expected_pos : start + expected_pos + 3]
+        )
+        assert subfile.readline() == all_data[start + expected_pos + 3 : 501]
+        assert subfile.readlines() == [
+            all_data[501:551],
+            all_data[551:601],
+            all_data[601:],
+        ]
+
+        expected_pos = 400
+        subfile.seek(offset=expected_pos)
+        assert subfile.readlines(95) == [
+            all_data[start + expected_pos : 501],
+            all_data[501:551],
+        ]

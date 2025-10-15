@@ -64,6 +64,8 @@ examples = [
 
 [project.urls]
 Repository = "https://github.com/ValkyrieSystems/jbpy"
+"Bug Tracker" = "https://github.com/ValkyrieSystems/jbpy/issues"
+Changelog = "https://github.com/ValkyrieSystems/jbpy/blob/main/CHANGELOG.md"
 
 [project.scripts]
 jbpinfo = "jbpy._jbpinfo:main"
