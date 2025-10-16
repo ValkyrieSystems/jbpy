@@ -10,6 +10,7 @@ build-backend = "setuptools.build_meta"
 [[tool.mypy.overrides]]
 module = [
     "smart_open.*",
+    "PIL.*",
 ]
 ignore_missing_imports = true
 
@@ -51,6 +52,14 @@ dev = [
     "ruff",
     "pytest",
     "smart_open[http]",
+    "numpy",
+    "jbpy[examples]",
+]
+
+# Dependencies needed to run the examples
+examples = [
+    "numpy",
+    "pillow",
 ]
 
 [project.urls]
