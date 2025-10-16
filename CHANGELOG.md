@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `readinto`, `readline`, and `readlines` methods to `SubFile`
 - `py.typed` marker file
-- `examples` subpackage demonstraiting how jbpy can be used
+- `examples` subpackage demonstrating how jbpy can be used
 - `image_data` submodule containing functions to aid parsing image segment data
 
 ### Changed
