@@ -17,7 +17,8 @@ class SECTGA(core.Tre):
                 core.BCSA,
                 core.AnyRange(),
                 core.StringAscii,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
 
@@ -29,7 +30,8 @@ class SECTGA(core.Tre):
                 core.BCSA,
                 core.AnyRange(),
                 core.StringAscii,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
 
