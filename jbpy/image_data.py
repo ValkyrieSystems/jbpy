@@ -193,7 +193,7 @@ class MaskTable(jbpy.core.Group):
                     None,
                     jbpy.core.AnyRange(),
                     jbpy.core.Bytes,
-                    default=b"",
+                    default=b"\x00" * tpxcd_length,
                 ),
             )
 

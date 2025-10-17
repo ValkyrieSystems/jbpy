@@ -274,6 +274,9 @@ BCSN_PI = "\x30-\x39"
 # UTF-8
 U8 = "\x00-\xff"
 
+# All the spaces
+BCSA_SPACE = ECSA_SPACE = "\x20"
+
 
 class RangeCheck(abc.ABC):
     """Base Class for checking the range of a JBP field"""
@@ -505,14 +508,19 @@ class Field(JbpIOComponent):
         Initial python value of the field
     setter_callback: callable
         function to call if the field's value changes
+    nullable: bool, optional
+        ``True`` if BCS-A spaces are allowed for entire field (often denoted with "<>" in JBP Field Type).
+        When ``True``, charset, range checks, conversion, etc. are bypassed when the python-typed value is ``None``.
 
     Attributes
     ----------
-    description
+    description: str
         Text description of the field.  For informational purposes only.
-    size
+    size: int
         Field size in bytes
-    encoded_value
+    nullable: bool
+        ``True`` if BCS-A spaces are allowed for entire field
+    encoded_value: bytes
         Field value as bytes
     value
         Field value as python type
@@ -529,9 +537,11 @@ class Field(JbpIOComponent):
         *,
         default: Any,
         setter_callback: Callable | None = None,
+        nullable: bool = False,
     ):
         super().__init__(name)
         self.description = description
+        self.nullable = nullable
         self._size = size
         self._charset = charset
         self._range = range
@@ -539,7 +549,13 @@ class Field(JbpIOComponent):
         self._converter = converter_class(name, size)
         self._setter_callback = setter_callback
 
-        self._encoded_value = self._converter.to_bytes(default)
+        encoded_default = self._encode(default)
+        check_size = 0 if size is None else size  # TODO: address size being set to None
+        if len(encoded_default) != check_size:
+            raise ValueError(
+                f"Field {name} {default=} does not encode to the proper size={check_size}"
+            )
+        self._encoded_value = encoded_default
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -552,16 +568,30 @@ class Field(JbpIOComponent):
             and self.encoded_value == other.encoded_value
         )
 
-    def isvalid(self) -> bool:
-        """Check if the field value matches the required character set and range restrictions"""
-        valid_charset = (
-            True
-            if self._charset is None
-            else bool(re.fullmatch(f"[{self._charset}]*", self.encoded_value.decode()))
+    def _encode(self, val: Any) -> bytes:
+        if self.nullable and val is None:
+            return BCSA_SPACE.encode() * self.size
+        return self._converter.to_bytes(val)
+
+    def isnull(self) -> bool:
+        """Return True if Field is nullable and all bytes are BCS spaces"""
+        return self.nullable and self.encoded_value == BCSA_SPACE.encode() * len(
+            self.encoded_value
         )
 
-        valid_range = self._range.isvalid(self.value)
-        return valid_charset and valid_range
+    def isvalid(self) -> bool:
+        """Check if the field value matches the required character set and range restrictions"""
+        if self.isnull():
+            return True
+
+        if self._charset is not None:
+            valid_charset = bool(
+                re.fullmatch(f"[{self._charset}]*", self.encoded_value.decode())
+            )
+            if not valid_charset:
+                return False
+
+        return self._range.isvalid(self.value)
 
     @property
     def encoded_value(self) -> bytes:
@@ -569,7 +599,14 @@ class Field(JbpIOComponent):
 
     @encoded_value.setter
     def encoded_value(self, value: bytes):
-        self._encoded_value = value
+        truncated = value[: self.size]
+        if len(truncated) < len(value):
+            logger.warning(
+                f"JBP header field {self.name} truncated to {self.size} characters.\n"
+                f"    old: {value!r}"
+                f"    new: {truncated!r}"
+            )
+        self._encoded_value = truncated
 
         if not self.isvalid():
             logger.warning(f"{self.name}: Invalid field value: {self.encoded_value!r}")
@@ -589,6 +626,8 @@ class Field(JbpIOComponent):
 
     @property
     def value(self) -> Any:
+        if self.isnull():
+            return None
         return self._converter.from_bytes(self.encoded_value)
 
     @value.setter
@@ -596,7 +635,7 @@ class Field(JbpIOComponent):
         self._set_value(val, callback=self._setter_callback)
 
     def _set_value(self, val, callback=None):
-        self.encoded_value = self._converter.to_bytes(val)
+        self.encoded_value = self._encode(val)
 
         if callback:
             callback(self)
@@ -847,7 +886,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -858,7 +898,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -869,7 +910,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -880,7 +922,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -889,9 +932,10 @@ class SecurityFields(Group):
                 "Declassification Type",
                 2,
                 ECSA,
-                Enum(["", "DD", "DE", "GD", "GE", "O", "X"]),
+                Enum(["DD", "DE", "GD", "GE", "O", "X"]),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -900,9 +944,10 @@ class SecurityFields(Group):
                 "Declassification Date",
                 8,
                 ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
+                DATE_REGEX,
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -913,7 +958,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -922,9 +968,10 @@ class SecurityFields(Group):
                 "Downgrade",
                 1,
                 ECSA,
-                Enum(["", "S", "C", "R"]),
+                Enum(["S", "C", "R"]),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -933,9 +980,10 @@ class SecurityFields(Group):
                 "Downgrade Date",
                 8,
                 ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
+                DATE_REGEX,
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -946,7 +994,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -955,9 +1004,10 @@ class SecurityFields(Group):
                 "Classification Authority Type",
                 1,
                 ECSA,
-                Enum(["", "O", "D", "M"]),
+                Enum(["O", "D", "M"]),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -968,7 +1018,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -977,9 +1028,10 @@ class SecurityFields(Group):
                 "Classification Reason",
                 1,
                 ECSA,
-                AnyOf(Constant(""), Regex("[A-G]")),
+                AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -988,9 +1040,10 @@ class SecurityFields(Group):
                 "Security Source Date",
                 8,
                 ECSA,
-                AnyOf(Constant(""), DATE_REGEX),
+                DATE_REGEX,
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -1001,7 +1054,8 @@ class SecurityFields(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
 
@@ -1146,7 +1200,8 @@ class FileHeader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._extend(SecurityFields("File Header Security Fields", "F").values())
@@ -1188,7 +1243,8 @@ class FileHeader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -1199,7 +1255,8 @@ class FileHeader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -1622,7 +1679,8 @@ class ImageSubheader(Group):
                 BCSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -1633,7 +1691,8 @@ class ImageSubheader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Image", "I").values())
@@ -1648,7 +1707,8 @@ class ImageSubheader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._append(
@@ -1746,9 +1806,10 @@ class ImageSubheader(Group):
                 "Image Coordinate Representation",
                 1,
                 BCSA,
-                Enum(["", "U", "G", "N", "S", "D"]),
+                Enum(["U", "G", "N", "S", "D"]),
                 StringAscii,
-                default="",
+                default=None,
+                nullable=True,
                 setter_callback=self._icords_handler,
             )
         )
@@ -2049,7 +2110,8 @@ class ImageSubheader(Group):
                     BCSA,
                     AnyRange(),
                     StringAscii,
-                    default="",
+                    default=None,
+                    nullable=True,
                 ),
             )
             after = self._insert_after(
@@ -2061,7 +2123,8 @@ class ImageSubheader(Group):
                     BCSA,
                     AnyRange(),
                     StringAscii,
-                    default="",
+                    default=None,
+                    nullable=True,
                 ),
             )
             after = self._insert_after(
@@ -2085,7 +2148,8 @@ class ImageSubheader(Group):
                     BCSA,
                     AnyRange(),
                     StringAscii,
-                    default="",
+                    default=None,
+                    nullable=True,
                 ),
             )
             after = self._insert_after(
@@ -2168,7 +2232,7 @@ class ImageSubheader(Group):
                         None,
                         AnyRange(),
                         Bytes,
-                        default=b"",
+                        default=b"\x00",
                     ),
                 )
 
@@ -2243,7 +2307,8 @@ class GraphicSubheader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Graphic", "S").values())
@@ -2470,7 +2535,8 @@ class TextSubheader(Group):
                 ECSA,
                 AnyRange(),
                 StringISO8859_1,
-                default="",
+                default=None,
+                nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Text", "T").values())

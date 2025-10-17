@@ -431,7 +431,7 @@ def test_field(caplog):
         "Description",
         5,
         jbpy.core.BCSN,
-        jbpy.core.MinMax(10, 100),
+        jbpy.core.MinMax(10, 99),
         jbpy.core.Integer,
         default=0,
         setter_callback=callback,
@@ -446,9 +446,20 @@ def test_field(caplog):
     field.value = 1
     assert not field.isvalid()
 
-    with pytest.raises(ValueError):
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
         stream = io.BytesIO(b"abcdefghi")
         field.load(stream)
+        assert len(caplog.records) == 1
+        assert "Invalid" in caplog.records[0].message
+
+    # Setting encoded_value with len(bytes) > size truncates
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
+        field.encoded_value = b"100".zfill(field.size + 1)
+        assert field.isvalid()  # in this case, the truncated result is valid
+        assert len(caplog.records) > 0
+        assert any("truncated" in rec.message for rec in caplog.records)
 
     field = jbpy.core.Field(
         "MyField",
@@ -486,6 +497,42 @@ def test_field(caplog):
             default="abc",
         )
         assert not caplog.records
+
+    # but an improperly-sized default results in an exception
+    with pytest.raises(ValueError, match="does not encode to the proper size"):
+        jbpy.core.Field(
+            "foo", "", 1, None, jbpy.core.AnyRange(), jbpy.core.Bytes, default=b""
+        )
+
+
+@pytest.mark.parametrize("nullable", (True, False))
+def test_field_nullable(nullable, caplog):
+    field = jbpy.core.Field(
+        "MyField",
+        "Description",
+        5,
+        jbpy.core.BCSN,
+        jbpy.core.MinMax(10, 100),
+        jbpy.core.Integer,
+        default=0,
+        nullable=nullable,
+    )
+    field.value = 10
+    assert field.isvalid()
+    if nullable:
+        field.value = None
+        assert field.isnull()
+        assert field.encoded_value == b" " * field.size
+        assert field.isvalid()
+    else:
+        with pytest.raises(TypeError):
+            field.value = None
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="jbpy.core"):
+            field.encoded_value = b" " * field.size
+            assert len(caplog.records) == 1
+            assert "Invalid field value" in caplog.records[0].message
+        assert not field.isvalid()
 
 
 def test_binaryplaceholder():
