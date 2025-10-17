@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `core.Field`s can be nullable (e.g. space-filled)
+- Setting `core.Field.encoded_value` truncates to the field's size
+
 
 ## [0.3.0] - 2025-10-16
 
@@ -18,8 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `AnyOf` now short-circuits
-- `core.Field`s can be nullable (e.g. space-filled)
-- Setting `core.Field.encoded_value` truncates to the field's size
 
 ### Removed
 - Unnecessary LSSHn and LTSHn callbacks
