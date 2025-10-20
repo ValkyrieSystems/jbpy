@@ -16,7 +16,7 @@ class SECTGA(core.Tre):
                 12,
                 core.BCSA,
                 core.AnyRange(),
-                core.StringAscii,
+                core.StringAscii(),
                 default=None,
                 nullable=True,
             )
@@ -29,7 +29,7 @@ class SECTGA(core.Tre):
                 15,
                 core.BCSA,
                 core.AnyRange(),
-                core.StringAscii,
+                core.StringAscii(),
                 default=None,
                 nullable=True,
             )
@@ -42,7 +42,7 @@ class SECTGA(core.Tre):
                 1,
                 core.BCSN,
                 core.Constant(0),
-                core.Integer,
+                core.Integer(),
                 default=0,
             )
         )
