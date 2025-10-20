@@ -39,9 +39,9 @@ def array_protocol_typestr(pvtype: str, nbpp: int) -> str:
 class BinaryUnsignedInteger(jbpy.core.PythonConverter):
     """convert to/from a binary integer"""
 
-    def to_bytes_impl(self, decoded_value: int) -> bytes:
+    def to_bytes_impl(self, decoded_value: int, size: int) -> bytes:
         decoded_value = int(decoded_value)
-        return decoded_value.to_bytes(self.size, byteorder="big", signed=False)
+        return decoded_value.to_bytes(size, byteorder="big", signed=False)
 
     def from_bytes_impl(self, encoded_value: bytes) -> int:
         return int.from_bytes(encoded_value, byteorder="big", signed=False)
@@ -85,7 +85,7 @@ class MaskTable(jbpy.core.Group):
                 4,
                 None,
                 jbpy.core.AnyRange(),
-                BinaryUnsignedInteger,
+                BinaryUnsignedInteger(),
                 default=0,
             )
         )
@@ -96,7 +96,7 @@ class MaskTable(jbpy.core.Group):
                 2,
                 None,
                 jbpy.core.Enum([0, 4]),
-                BinaryUnsignedInteger,
+                BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_bmrlnth,
             )
@@ -108,7 +108,7 @@ class MaskTable(jbpy.core.Group):
                 2,
                 None,
                 jbpy.core.Enum([0, 4]),
-                BinaryUnsignedInteger,
+                BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_tmrlnth,
             )
@@ -120,7 +120,7 @@ class MaskTable(jbpy.core.Group):
                 2,
                 None,
                 jbpy.core.AnyRange(),
-                BinaryUnsignedInteger,
+                BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_tpxcdlnth,
             )
@@ -146,7 +146,7 @@ class MaskTable(jbpy.core.Group):
                         4,
                         None,
                         jbpy.core.AnyRange(),
-                        BinaryUnsignedInteger,
+                        BinaryUnsignedInteger(),
                         default=0,
                     ),
                 )
@@ -175,7 +175,7 @@ class MaskTable(jbpy.core.Group):
                         4,
                         None,
                         jbpy.core.AnyRange(),
-                        BinaryUnsignedInteger,
+                        BinaryUnsignedInteger(),
                         default=0,
                     ),
                 )
@@ -192,7 +192,7 @@ class MaskTable(jbpy.core.Group):
                     tpxcd_length,
                     None,
                     jbpy.core.AnyRange(),
-                    jbpy.core.Bytes,
+                    jbpy.core.Bytes(),
                     default=b"\x00" * tpxcd_length,
                 ),
             )

@@ -13,17 +13,14 @@ import pytest
 import jbpy.core
 
 
-def test_string_ascii_conv(caplog):
-    conv = jbpy.core.StringAscii("test", 5)
-    assert conv.to_bytes("") == b"     "
-    assert conv.to_bytes("abc") == b"abc  "
-    assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
-        assert conv.to_bytes("abcdef") == b"abcde"
-        assert len(caplog.records) == 1
-        assert "truncated" in caplog.records[0].message
+def test_string_ascii_conv():
+    conv = jbpy.core.StringAscii()
+    assert conv.to_bytes("", 5) == b"     "
+    assert conv.to_bytes("abc", 5) == b"abc  "
+    assert conv.to_bytes("abcde", 5) == b"abcde"
+    assert conv.to_bytes("abcdef", 5) == b"abcdef"
     with pytest.raises(ValueError):
-        conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}")
+        conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}", 5)
 
     assert conv.from_bytes(b"     ") == ""
     assert conv.from_bytes(b"abc  ") == "abc"
@@ -32,16 +29,13 @@ def test_string_ascii_conv(caplog):
         conv.from_bytes(b"\xd8")
 
 
-def test_string_iso_conv(caplog):
-    conv = jbpy.core.StringISO8859_1("test", 5)
-    assert conv.to_bytes("") == b"     "
-    assert conv.to_bytes("abc") == b"abc  "
-    assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
-        assert conv.to_bytes("abcdef") == b"abcde"
-        assert len(caplog.records) == 1
-        assert "truncated" in caplog.records[0].message
-    assert conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}") == b"\xd8    "
+def test_string_iso_conv():
+    conv = jbpy.core.StringISO8859_1()
+    assert conv.to_bytes("", 5) == b"     "
+    assert conv.to_bytes("abc", 5) == b"abc  "
+    assert conv.to_bytes("abcde", 5) == b"abcde"
+    assert conv.to_bytes("abcdef", 5) == b"abcdef"
+    assert conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}", 5) == b"\xd8    "
 
     assert conv.from_bytes(b"     ") == ""
     assert conv.from_bytes(b"abc  ") == "abc"
@@ -49,16 +43,13 @@ def test_string_iso_conv(caplog):
     assert conv.from_bytes(b"\xd8") == "\N{LATIN CAPITAL LETTER O WITH STROKE}"
 
 
-def test_string_utf8_conv(caplog):
-    conv = jbpy.core.StringUtf8("test", 5)
-    assert conv.to_bytes("") == b"     "
-    assert conv.to_bytes("abc") == b"abc  "
-    assert conv.to_bytes("abcde") == b"abcde"
-    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
-        assert conv.to_bytes("abcdef") == b"abcde"
-        assert len(caplog.records) == 1
-        assert "truncated" in caplog.records[0].message
-    assert conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}") == b"\xc3\x98   "
+def test_string_utf8_conv():
+    conv = jbpy.core.StringUtf8()
+    assert conv.to_bytes("", 5) == b"     "
+    assert conv.to_bytes("abc", 5) == b"abc  "
+    assert conv.to_bytes("abcde", 5) == b"abcde"
+    assert conv.to_bytes("abcdef", 5) == b"abcdef"
+    assert conv.to_bytes("\N{LATIN CAPITAL LETTER O WITH STROKE}", 5) == b"\xc3\x98   "
 
     assert conv.from_bytes(b"     ") == ""
     assert conv.from_bytes(b"abc  ") == "abc"
@@ -67,20 +58,19 @@ def test_string_utf8_conv(caplog):
 
 
 def test_bytes_conv():
-    conv = jbpy.core.Bytes("test", 5)
-    assert conv.to_bytes(b"asdf") == b"asdf"
+    conv = jbpy.core.Bytes()
+    assert conv.to_bytes(b"asdf", 4) == b"asdf"
+    with pytest.raises(ValueError, match="must be at least size"):
+        conv.to_bytes(b"asdf", 5)
     assert conv.from_bytes(b"asdf") == b"asdf"
 
 
-def test_integer_conv(caplog):
-    conv = jbpy.core.Integer("test", 5)
-    assert conv.to_bytes(0) == b"00000"
-    assert conv.to_bytes(10) == b"00010"
-    assert conv.to_bytes(-123) == b"-0123"
-    with caplog.at_level(logging.WARNING, logger="jbpy.core"):
-        assert conv.to_bytes(123456) == b"12345"
-        assert len(caplog.records) == 1
-        assert "truncated" in caplog.records[0].message
+def test_integer_conv():
+    conv = jbpy.core.Integer()
+    assert conv.to_bytes(0, 5) == b"00000"
+    assert conv.to_bytes(10, 5) == b"00010"
+    assert conv.to_bytes(-123, 5) == b"-0123"
+    assert conv.to_bytes(123456, 5) == b"123456"
 
     assert conv.from_bytes(b"00000") == 0
     assert conv.from_bytes(b"00010") == 10
@@ -88,8 +78,8 @@ def test_integer_conv(caplog):
 
 
 def test_rgb_conv():
-    conv = jbpy.core.RGB("test", 3)
-    assert conv.to_bytes((1, 2, 3)) == b"\01\02\03"
+    conv = jbpy.core.RGB()
+    assert conv.to_bytes((1, 2, 3), 3) == b"\01\02\03"
     assert conv.from_bytes(b"\01\02\03") == (1, 2, 3)
 
 
@@ -432,7 +422,7 @@ def test_field(caplog):
         5,
         jbpy.core.BCSN,
         jbpy.core.MinMax(10, 99),
-        jbpy.core.Integer,
+        jbpy.core.Integer(),
         default=0,
         setter_callback=callback,
     )
@@ -467,7 +457,7 @@ def test_field(caplog):
         5,
         jbpy.core.BCSN,
         jbpy.core.AnyRange(),
-        jbpy.core.StringUtf8,
+        jbpy.core.StringUtf8(),
         default="",
     )
 
@@ -493,7 +483,7 @@ def test_field(caplog):
             5,
             jbpy.core.BCSN,
             jbpy.core.AnyRange(),
-            jbpy.core.StringUtf8,
+            jbpy.core.StringUtf8(),
             default="abc",
         )
         assert not caplog.records
@@ -501,7 +491,13 @@ def test_field(caplog):
     # but an improperly-sized default results in an exception
     with pytest.raises(ValueError, match="does not encode to the proper size"):
         jbpy.core.Field(
-            "foo", "", 1, None, jbpy.core.AnyRange(), jbpy.core.Bytes, default=b""
+            "foo",
+            "",
+            1,
+            None,
+            jbpy.core.AnyRange(),
+            jbpy.core.Bytes(),
+            default=b"\x00\x00",
         )
 
 
@@ -513,7 +509,7 @@ def test_field_nullable(nullable, caplog):
         5,
         jbpy.core.BCSN,
         jbpy.core.MinMax(10, 100),
-        jbpy.core.Integer,
+        jbpy.core.Integer(),
         default=0,
         nullable=nullable,
     )
