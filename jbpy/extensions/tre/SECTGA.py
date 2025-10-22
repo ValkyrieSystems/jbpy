@@ -14,10 +14,10 @@ class SECTGA(core.Tre):
                 "SEC_ID",
                 "Designator of Secondary Target",
                 12,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
-                default="",
+                charset=core.BCSA,
+                converter=core.StringAscii(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -26,10 +26,10 @@ class SECTGA(core.Tre):
                 "SEC_BE",
                 "Basic Encyclopedia ID",
                 15,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
-                default="",
+                charset=core.BCSA,
+                converter=core.StringAscii(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -38,9 +38,7 @@ class SECTGA(core.Tre):
                 "(reserved-001)",
                 "",
                 1,
-                core.ECS,
-                core.AnyRange(),
-                core.StringAscii,
-                default="0",
+                converter=core.Bytes(),
+                default=b"0",
             )
         )

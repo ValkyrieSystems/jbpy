@@ -14,8 +14,8 @@ class STDIDC(core.Tre):
                 "ACQUISITION_DATE",
                 "Acquisition Date",
                 14,
-                core.BCSN,
-                core.Regex(
+                charset=core.BCSN,
+                decoded_range=core.Regex(
                     core.PATTERN_CC
                     + core.PATTERN_YY
                     + core.PATTERN_MM
@@ -24,7 +24,7 @@ class STDIDC(core.Tre):
                     + core.PATTERN_mm
                     + core.PATTERN_SS
                 ),  # should hyphens be allowed?
-                core.StringAscii,
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -34,9 +34,8 @@ class STDIDC(core.Tre):
                 "MISSION",
                 "Mission Identification",
                 14,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
+                charset=core.BCSA,
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -46,9 +45,8 @@ class STDIDC(core.Tre):
                 "PASS",
                 "Pass Number",
                 2,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
+                charset=core.BCSA,
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -58,9 +56,8 @@ class STDIDC(core.Tre):
                 "OP_NUM",
                 "Image Operation Number",
                 3,
-                core.BCSN_PI,
-                core.AnyRange(),
-                core.Integer,
+                charset=core.BCSN_PI,
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -70,9 +67,9 @@ class STDIDC(core.Tre):
                 "START_SEGMENT",
                 "Start Segment ID",
                 2,
-                core.BCSA,
-                core.Regex(r"[A-Z]{2}"),
-                core.StringAscii,
+                charset=core.BCSA,
+                decoded_range=core.Regex(r"[A-Z]{2}"),
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -82,9 +79,8 @@ class STDIDC(core.Tre):
                 "REPRO_NUM",
                 "Reprocess Number",
                 2,
-                core.BCSN_PI,
-                core.AnyRange(),
-                core.Integer,
+                charset=core.BCSN_PI,
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -94,9 +90,8 @@ class STDIDC(core.Tre):
                 "REPLAY_REGEN",
                 "Replay Regen",
                 3,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
+                charset=core.BCSA,
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -106,10 +101,11 @@ class STDIDC(core.Tre):
                 "BLANK_FILL",
                 "Blank Fill",
                 1,
-                core.BCSA,
-                core.AnyOf(core.Constant(""), core.Constant("_")),
-                core.StringAscii,
-                default="",
+                charset=core.BCSA,
+                decoded_range=core.Constant("_"),
+                converter=core.StringAscii(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -118,9 +114,9 @@ class STDIDC(core.Tre):
                 "START_COLUMN",
                 "Starting Column Block",
                 3,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -130,9 +126,9 @@ class STDIDC(core.Tre):
                 "START_ROW",
                 "Starting Row Block",
                 5,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -142,9 +138,9 @@ class STDIDC(core.Tre):
                 "END_SEGMENT",
                 "Ending Segment ID",
                 2,
-                core.BCSA,  # BCS-N in document seems to be a mistake
-                core.Regex(r"[A-Z]{2}"),
-                core.StringAscii,
+                charset=core.BCSA,  # BCS-N in document seems to be a mistake
+                decoded_range=core.Regex(r"[A-Z]{2}"),
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -154,9 +150,9 @@ class STDIDC(core.Tre):
                 "END_COLUMN",
                 "Ending Column Block",
                 3,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -166,9 +162,9 @@ class STDIDC(core.Tre):
                 "END_ROW",
                 "Ending Row Block",
                 5,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -178,10 +174,11 @@ class STDIDC(core.Tre):
                 "COUNTRY",
                 "Country Code",
                 2,
-                core.BCSA,
-                core.AnyOf(core.Constant(""), core.Regex(r"[A-Z]{2}")),
-                core.StringAscii,
-                default="",
+                charset=core.BCSA,
+                decoded_range=core.Regex(r"[A-Z]{2}"),
+                converter=core.StringAscii(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -190,15 +187,11 @@ class STDIDC(core.Tre):
                 "WAC",
                 "World Aeronautical Chart",
                 4,
-                core.BCSN + core.BCSA_SPACE,
-                core.AnyOf(
-                    core.Constant(""),
-                    core.Regex(
-                        r"(?!0000)(0[0-9]{3}|1[0-7][0-9]{2}|18[0-5][0-9])|186[0-6]"  # 0001-1866
-                    ),
-                ),
-                core.StringAscii,
-                default="",
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, 1866),
+                converter=core.Integer(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -212,9 +205,9 @@ class STDIDC(core.Tre):
                 "LOCATION",
                 "Location",
                 11,
-                core.BCSA,  # BCS-N seems like a mistake in the document
-                core.Regex(dd + mm + x + ddd + mm + y),
-                core.StringAscii,
+                charset=core.BCSA,  # BCS-N seems like a mistake in the document
+                decoded_range=core.Regex(dd + mm + x + ddd + mm + y),
+                converter=core.StringAscii(),
                 default="",
             )
         )
@@ -224,10 +217,9 @@ class STDIDC(core.Tre):
                 "reserved0",  # blank in document
                 "reserved",
                 5,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
-                default="",
+                converter=core.Bytes(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -236,9 +228,8 @@ class STDIDC(core.Tre):
                 "reserved1",  # blank in document
                 "reserved",
                 8,
-                core.BCSA,
-                core.AnyRange(),
-                core.StringAscii,
-                default="",
+                converter=core.Bytes(),
+                default=None,
+                nullable=True,
             )
         )

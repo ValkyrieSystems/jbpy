@@ -32,6 +32,7 @@ EXPECTED_TRES = (
     "BLOCKA",
     "SECTGA",
     "STDIDC",
+    "USE00A",
 )
 
 

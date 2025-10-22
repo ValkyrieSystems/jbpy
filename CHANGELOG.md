@@ -8,20 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Encoded range checking to `core.Field`
+- TRE support: BLOCKA, USE00A, STDIDC
+- `FloatFormat` converter
+
+### Changed
+- `core.Field`s can be nullable (e.g. space-filled)
+- Setting `core.Field.encoded_value` truncates to the field's size
+- `core.Field` constructor takes a converter instance instead of class
+- `core.PythonConverter.to_bytes` requires a minimum `size` argument and no longer truncates
+- Segments are initialized to a minimum data size
+- Modified `core.Field.__init__`; some args are now keyword-only and/or optional
+
+### Fixed
+- Minutes pattern no longer overwrites months pattern in `DATETIME_REGEX`
+- Prevent spurious warnings about TRE names shorter than 6 characters
+
+
+## [0.3.0] - 2025-10-16
+
+### Added
 - `readinto`, `readline`, and `readlines` methods to `SubFile`
 - `py.typed` marker file
-- TRE support: BLOCKA, STDIDC
+- `examples` subpackage demonstrating how jbpy can be used
+- `image_data` submodule containing functions to aid parsing image segment data
 
 ### Changed
 - `AnyOf` now short-circuits
 
 ### Removed
 - Unnecessary LSSHn and LTSHn callbacks
+- MIL-STD-2500C based `ICAT` enumeration. JBP uses the NTB Field Value Registry.
 
 ### Fixed
 - Only add `DESSHF` to `DataExtensionSubheader` when `DESSHL` is nonzero
-- Minutes pattern no longer overwrites months pattern in `DATETIME_REGEX`
-- Prevent spurious warnings about TRE names shorter than 6 characters
 
 
 ## [0.2.0] - 2025-08-26
@@ -43,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic JBP functionality copied from SARkit's `_nitf_io.py`
 - TRE support: SECTGA
 
-[unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ValkyrieSystems/jbpy/releases/tag/v0.1.0

@@ -10,6 +10,7 @@ build-backend = "setuptools.build_meta"
 [[tool.mypy.overrides]]
 module = [
     "smart_open.*",
+    "PIL.*",
 ]
 ignore_missing_imports = true
 
@@ -51,6 +52,14 @@ dev = [
     "ruff",
     "pytest",
     "smart_open[http]",
+    "numpy",
+    "jbpy[examples]",
+]
+
+# Dependencies needed to run the examples
+examples = [
+    "numpy",
+    "pillow",
 ]
 
 [project.urls]
@@ -66,3 +75,4 @@ jbpdump = "jbpy._jbpdump:main"
 BLOCKA = "jbpy.extensions.tre.BLOCKA:BLOCKA"
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"
 STDIDC = "jbpy.extensions.tre.STDIDC:STDIDC"
+USE00A = "jbpy.extensions.tre.USE00A:USE00A"

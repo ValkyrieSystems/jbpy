@@ -14,9 +14,9 @@ class BLOCKA(core.Tre):
                 "BLOCK_INSTANCE",
                 "Block number of this image block",
                 2,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -26,9 +26,8 @@ class BLOCKA(core.Tre):
                 "N_GRAY",
                 "The number of gray fill pixels",
                 5,
-                core.BCSN_PI,
-                core.AnyRange(),
-                core.Integer,
+                charset=core.BCSN_PI,
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -38,9 +37,9 @@ class BLOCKA(core.Tre):
                 "L_LINES",
                 "Row Count",
                 5,
-                core.BCSN_PI,
-                core.MinMax(1, None),
-                core.Integer,
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(1, None),
+                converter=core.Integer(),
                 default=0,
             )
         )
@@ -50,15 +49,11 @@ class BLOCKA(core.Tre):
                 "LAYOVER_ANGLE",
                 "Layover Angle",
                 3,
-                core.BCSN + core.BCSA_SPACE,
-                core.AnyOf(
-                    core.Constant(""),
-                    core.Regex(
-                        r"([0-2][0-9]{2}|3[0-5][0-9])"  # 000-359
-                    ),
-                ),
-                core.StringAscii,
-                default="",
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(None, 359),
+                converter=core.Integer(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -67,15 +62,11 @@ class BLOCKA(core.Tre):
                 "SHADOW_ANGLE",
                 "Shadow Angle",
                 3,
-                core.BCSN + core.BCSA_SPACE,
-                core.AnyOf(
-                    core.Constant(""),
-                    core.Regex(
-                        r"([0-2][0-9]{2}|3[0-5][0-9])"  # 000-359
-                    ),
-                ),
-                core.StringAscii,
-                default="",
+                charset=core.BCSN_PI,
+                decoded_range=core.MinMax(None, 359),
+                converter=core.Integer(),
+                default=None,
+                nullable=True,
             )
         )
 
@@ -84,10 +75,8 @@ class BLOCKA(core.Tre):
                 "(reserved-001)",
                 "",
                 16,
-                core.ECS,
-                core.AnyRange(),
-                core.StringAscii,
-                default="",
+                converter=core.Bytes(),
+                default=core.BCSA_SPACE.encode() * 16,
             )
         )
 
@@ -102,10 +91,10 @@ class BLOCKA(core.Tre):
                     name,
                     desc,
                     21,
-                    core.BCSA,
-                    core.AnyRange(),
-                    core.StringAscii,
-                    default="",
+                    charset=core.BCSA,
+                    converter=core.StringAscii(),
+                    default=None,
+                    nullable=True,
                 )
             )
 
@@ -114,9 +103,7 @@ class BLOCKA(core.Tre):
                 "(reserved-002)",
                 "",
                 5,
-                core.ECS,
-                core.AnyRange(),
-                core.StringAscii,
-                default="010.0",
+                converter=core.Bytes(),
+                default=b"010.0",
             )
         )
