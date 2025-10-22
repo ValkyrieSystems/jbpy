@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Encoded range checking to `core.Field`
+- TRE support: USE00A
+- `FloatFormat` converter
+
 ### Changed
 - `core.Field`s can be nullable (e.g. space-filled)
 - Setting `core.Field.encoded_value` truncates to the field's size
 - `core.Field` constructor takes a converter instance instead of class
 - `core.PythonConverter.to_bytes` requires a minimum `size` argument and no longer truncates
 - Segments are initialized to a minimum data size
+- Modified `core.Field.__init__`; some args are now keyword-only and/or optional
 
 
 ## [0.3.0] - 2025-10-16

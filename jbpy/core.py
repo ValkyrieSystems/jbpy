@@ -290,14 +290,14 @@ class RangeCheck(abc.ABC):
     """Base Class for checking the range of a JBP field"""
 
     @abc.abstractmethod
-    def isvalid(self, decoded_value: Any) -> bool:
+    def isvalid(self, value: Any) -> bool:
         """Returns ``True`` if field satisfies range check."""
 
 
 class AnyRange(RangeCheck):
     """Field has no range restrictions"""
 
-    def isvalid(self, decoded_value: Any) -> bool:
+    def isvalid(self, value: Any) -> bool:
         return True
 
 
@@ -313,16 +313,16 @@ class MinMax(RangeCheck):
 
     """
 
-    def __init__(self, minimum: int | None, maximum: int | None):
+    def __init__(self, minimum: int | float | None, maximum: int | float | None):
         self.minimum = minimum
         self.maximum = maximum
 
-    def isvalid(self, decoded_value: int) -> bool:
+    def isvalid(self, value: int | float) -> bool:
         valid = True
         if self.minimum is not None:
-            valid &= decoded_value >= self.minimum
+            valid &= value >= self.minimum
         if self.maximum is not None:
-            valid &= decoded_value <= self.maximum
+            valid &= value <= self.maximum
         return valid
 
 
@@ -332,8 +332,8 @@ class Regex(RangeCheck):
     def __init__(self, pattern: str):
         self.pattern = pattern
 
-    def isvalid(self, decoded_value: str) -> bool:
-        return bool(re.fullmatch(self.pattern, decoded_value))
+    def isvalid(self, value: str) -> bool:
+        return bool(re.fullmatch(self.pattern, value))
 
 
 class Constant(RangeCheck):
@@ -342,8 +342,8 @@ class Constant(RangeCheck):
     def __init__(self, const: str | int):
         self.const = const
 
-    def isvalid(self, decoded_value: str | int) -> bool:
-        return decoded_value == self.const
+    def isvalid(self, value: str | int) -> bool:
+        return value == self.const
 
 
 class Enum(RangeCheck):
@@ -352,8 +352,8 @@ class Enum(RangeCheck):
     def __init__(self, enumeration: Iterable):
         self.enumeration = set(enumeration)
 
-    def isvalid(self, decoded_value: Any) -> bool:
-        return decoded_value in self.enumeration
+    def isvalid(self, value: Any) -> bool:
+        return value in self.enumeration
 
 
 class AnyOf(RangeCheck):
@@ -369,9 +369,9 @@ class AnyOf(RangeCheck):
     def __init__(self, *ranges: RangeCheck):
         self.ranges = ranges
 
-    def isvalid(self, decoded_value: Any) -> bool:
+    def isvalid(self, value: Any) -> bool:
         # Use any(generator) to ensure short circuit logic
-        return any(check.isvalid(decoded_value) for check in self.ranges)
+        return any(check.isvalid(value) for check in self.ranges)
 
 
 class Not(RangeCheck):
@@ -380,8 +380,8 @@ class Not(RangeCheck):
     def __init__(self, range_check: RangeCheck):
         self.range_check = range_check
 
-    def isvalid(self, decoded_value: Any) -> bool:
-        return not self.range_check.isvalid(decoded_value)
+    def isvalid(self, value: Any) -> bool:
+        return not self.range_check.isvalid(value)
 
 
 # Common Regex patterns
@@ -506,15 +506,17 @@ class Field(JbpIOComponent):
         Text description of the field
     size: int
         Size in bytes of the field
-    charset: str
-        regex expression matching a single character
-    range: `RangeCheck` object
-        `RangeCheck` object to check acceptable values
+    charset: str or None, optional
+        regex expression matching a single character. If ``None``, character set check is skipped.
+    encoded_range: RangeCheck or None, optional
+        Checker for the encoded value. If ``None``, encoded validation is skipped.
+    decoded_range: RangeCheck or None, optional
+        Checker for the decoded value. If ``None``, decoded validation is skipped.
     converter: PythonConverter
         Object to use for converting to/from python data types
     default: any
         Initial python value of the field
-    setter_callback: callable
+    setter_callback: callable or None, optional
         function to call if the field's value changes
     nullable: bool, optional
         ``True`` if BCS-A spaces are allowed for entire field (often denoted with "<>" in JBP Field Type).
@@ -539,10 +541,11 @@ class Field(JbpIOComponent):
         name: str,
         description: str,
         size: int,
-        charset: str | None,
-        range: RangeCheck,
-        converter: PythonConverter,
         *,
+        charset: str | None = None,
+        encoded_range: RangeCheck | None = None,
+        decoded_range: RangeCheck | None = None,
+        converter: PythonConverter,
         default: Any,
         setter_callback: Callable | None = None,
         nullable: bool = False,
@@ -552,7 +555,8 @@ class Field(JbpIOComponent):
         self.nullable = nullable
         self._size = size
         self._charset = charset
-        self._range = range
+        self._encoded_range_check = encoded_range
+        self._decoded_range_check = decoded_range
         self._converter = converter
         self._setter_callback = setter_callback
 
@@ -597,7 +601,17 @@ class Field(JbpIOComponent):
             if not valid_charset:
                 return False
 
-        return self._range.isvalid(self.value)
+        if self._encoded_range_check is not None:
+            valid_encoding = self._encoded_range_check.isvalid(self.encoded_value)
+            if not valid_encoding:
+                return False
+
+        if self._decoded_range_check is not None:
+            valid_decoding = self._decoded_range_check.isvalid(self.value)
+            if not valid_decoding:
+                return False
+
+        return True
 
     @property
     def encoded_value(self) -> bytes:
@@ -614,8 +628,15 @@ class Field(JbpIOComponent):
             )
         self._encoded_value = truncated
 
-        if not self.isvalid():
-            logger.warning(f"{self.name}: Invalid field value: {self.encoded_value!r}")
+        try:
+            if not self.isvalid():
+                logger.warning(
+                    f"{self.name}: Invalid field value: {self.encoded_value!r}"
+                )
+        except Exception:
+            logger.exception(
+                f"An exception occurred when trying to validate {self.name}:"
+            )
 
     @property
     def size(self) -> int:
@@ -881,9 +902,9 @@ class SecurityFields(Group):
                 f"{x}SCLAS",
                 "Security Classification",
                 1,
-                ECSA,
-                Enum(["T", "S", "C", "R", "U"]),
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=Enum(["T", "S", "C", "R", "U"]),
+                converter=StringISO8859_1(),
                 default="U",
             )
         )
@@ -892,9 +913,8 @@ class SecurityFields(Group):
                 f"{x}SCLSY",
                 "Security Classification System",
                 2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -904,9 +924,8 @@ class SecurityFields(Group):
                 f"{x}SCODE",
                 "Codewords",
                 11,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -916,9 +935,8 @@ class SecurityFields(Group):
                 f"{x}SCTLH",
                 "Control and Handling",
                 2,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -928,9 +946,8 @@ class SecurityFields(Group):
                 f"{x}SREL",
                 "Releasing Instructions",
                 20,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -940,9 +957,9 @@ class SecurityFields(Group):
                 f"{x}SDCTP",
                 "Declassification Type",
                 2,
-                ECSA,
-                Enum(["DD", "DE", "GD", "GE", "O", "X"]),
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=Enum(["DD", "DE", "GD", "GE", "O", "X"]),
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -952,9 +969,9 @@ class SecurityFields(Group):
                 f"{x}SDCDT",
                 "Declassification Date",
                 8,
-                ECSA,
-                DATE_REGEX,
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=DATE_REGEX,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -964,9 +981,8 @@ class SecurityFields(Group):
                 f"{x}SDCXM",
                 "Declassification Exemption",
                 4,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -976,9 +992,9 @@ class SecurityFields(Group):
                 f"{x}SDG",
                 "Downgrade",
                 1,
-                ECSA,
-                Enum(["S", "C", "R"]),
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=Enum(["S", "C", "R"]),
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -988,9 +1004,9 @@ class SecurityFields(Group):
                 f"{x}SDGDT",
                 "Downgrade Date",
                 8,
-                ECSA,
-                DATE_REGEX,
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=DATE_REGEX,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1000,9 +1016,8 @@ class SecurityFields(Group):
                 f"{x}SCLTX",
                 "Classification Text",
                 43,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1012,9 +1027,9 @@ class SecurityFields(Group):
                 f"{x}SCATP",
                 "Classification Authority Type",
                 1,
-                ECSA,
-                Enum(["O", "D", "M"]),
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=Enum(["O", "D", "M"]),
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1024,9 +1039,8 @@ class SecurityFields(Group):
                 f"{x}SCAUT",
                 "Classification Authority",
                 40,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1036,9 +1050,8 @@ class SecurityFields(Group):
                 f"{x}SCRSN",
                 "Classification Reason",
                 1,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1048,9 +1061,9 @@ class SecurityFields(Group):
                 f"{x}SSRDT",
                 "Security Source Date",
                 8,
-                ECSA,
-                DATE_REGEX,
-                StringISO8859_1(),
+                charset=ECSA,
+                decoded_range=DATE_REGEX,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1060,9 +1073,8 @@ class SecurityFields(Group):
                 f"{x}SCTLN",
                 "Security Control Number",
                 15,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1140,9 +1152,9 @@ class FileHeader(Group):
                 "FHDR",
                 "File Profile Name",
                 4,
-                BCSA,
-                Enum(["NITF", "NSIF"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["NITF", "NSIF"]),
+                converter=StringAscii(),
                 default="NITF",
             )
         )
@@ -1151,9 +1163,9 @@ class FileHeader(Group):
                 "FVER",
                 "File Version",
                 5,
-                BCSA,
-                Enum(["02.10", "01.01"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["02.10", "01.01"]),
+                converter=StringAscii(),
                 default="02.10",
             )
         )
@@ -1162,9 +1174,9 @@ class FileHeader(Group):
                 "CLEVEL",
                 "Complexity Level",
                 2,
-                BCSN_PI,
-                MinMax(1, 99),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, 99),
+                converter=Integer(),
                 default=99,
             )
         )
@@ -1173,9 +1185,9 @@ class FileHeader(Group):
                 "STYPE",
                 "Standard Type",
                 4,
-                BCSA,
-                Constant("BF01"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("BF01"),
+                converter=StringAscii(),
                 default="BF01",
             )
         )
@@ -1184,9 +1196,9 @@ class FileHeader(Group):
                 "OSTAID",
                 "Originating Station ID",
                 10,
-                BCSA,
-                Not(Constant("")),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Not(Constant("")),
+                converter=StringAscii(),
                 default="unknown",
             )
         )
@@ -1195,9 +1207,9 @@ class FileHeader(Group):
                 "FDT",
                 "File Date and Time",
                 14,
-                BCSN_I,
-                DATETIME_REGEX,
-                StringAscii(),
+                charset=BCSN_I,
+                decoded_range=DATETIME_REGEX,
+                converter=StringAscii(),
                 default="-" * 14,
             )
         )
@@ -1206,9 +1218,8 @@ class FileHeader(Group):
                 "FTITLE",
                 "File Title",
                 80,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1219,9 +1230,8 @@ class FileHeader(Group):
                 "FSCOP",
                 "File Copy Number",
                 5,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1230,23 +1240,28 @@ class FileHeader(Group):
                 "FSCPYS",
                 "File Number of Copies",
                 5,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
             )
         )
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer(), default=0)
+            Field(
+                "ENCRYP",
+                "Encryption",
+                1,
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
+                default=0,
+            )
         )
         self._append(
             Field(
                 "FBKGC",
                 "File Background Color",
                 3,
-                None,
-                AnyRange(),
-                RGB(),
+                converter=RGB(),
                 default=(0, 0, 0),
             )
         )
@@ -1255,9 +1270,8 @@ class FileHeader(Group):
                 "ONAME",
                 "Originator's Name",
                 24,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1267,9 +1281,8 @@ class FileHeader(Group):
                 "OPHONE",
                 "Originator's Phone Number",
                 18,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1279,9 +1292,9 @@ class FileHeader(Group):
                 "FL",
                 "File Length",
                 12,
-                BCSN_PI,
-                MinMax(388, 999_999_999_998),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(388, 999_999_999_998),
+                converter=Integer(),
                 default=388,
             )
         )
@@ -1290,9 +1303,9 @@ class FileHeader(Group):
                 "HL",
                 "JBP File Header Length",
                 6,
-                BCSN_PI,
-                MinMax(388, 999_999),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(388, 999_999),
+                converter=Integer(),
                 default=388,
             )
         )
@@ -1301,9 +1314,8 @@ class FileHeader(Group):
                 "NUMI",
                 "Number of Image Segments",
                 3,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._numi_handler,
             )
@@ -1313,9 +1325,8 @@ class FileHeader(Group):
                 "NUMS",
                 "Number of Graphic Segments",
                 3,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._nums_handler,
             )
@@ -1325,9 +1336,9 @@ class FileHeader(Group):
                 "NUMX",
                 "Reserved for Future Use",
                 3,
-                BCSN_PI,
-                Constant(0),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1336,9 +1347,8 @@ class FileHeader(Group):
                 "NUMT",
                 "Number of Text Segments",
                 3,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._numt_handler,
             )
@@ -1348,9 +1358,8 @@ class FileHeader(Group):
                 "NUMDES",
                 "Number of Data Extension Segments",
                 3,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._numdes_handler,
             )
@@ -1360,9 +1369,8 @@ class FileHeader(Group):
                 "NUMRES",
                 "Number of Reserved Extension Segments",
                 3,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._numres_handler,
             )
@@ -1372,9 +1380,9 @@ class FileHeader(Group):
                 "UDHDL",
                 "User Defined Header Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(Constant(0), MinMax(3, 10**5 - 1)),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=AnyOf(Constant(0), MinMax(3, 10**5 - 1)),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._udhdl_handler,
             )
@@ -1384,9 +1392,9 @@ class FileHeader(Group):
                 "XHDL",
                 "Extended Header Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(Constant(0), MinMax(3, 10**5 - 1)),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=AnyOf(Constant(0), MinMax(3, 10**5 - 1)),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._xhdl_handler,
             )
@@ -1404,9 +1412,9 @@ class FileHeader(Group):
                     f"LISH{idx:03}",
                     "Length of nth Image Subheader",
                     6,
-                    BCSN_PI,
-                    MinMax(439, 999_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(439, 999_999),
+                    converter=Integer(),
                     default=439,
                 ),
             )
@@ -1416,9 +1424,9 @@ class FileHeader(Group):
                     f"LI{idx:03}",
                     "Length of nth Image Segment",
                     10,
-                    BCSN_PI,
-                    MinMax(1, 10**10 - 1),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 10**10 - 1),
+                    converter=Integer(),
                     setter_callback=self._lin_handler,
                     default=1,
                 ),
@@ -1442,9 +1450,9 @@ class FileHeader(Group):
                     f"LSSH{idx:03}",
                     "Length of nth Graphic Subheader",
                     4,
-                    BCSN_PI,
-                    MinMax(258, 999_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(258, 999_999),
+                    converter=Integer(),
                     default=258,
                 ),
             )
@@ -1454,9 +1462,9 @@ class FileHeader(Group):
                     f"LS{idx:03}",
                     "Length of nth Graphic Segment",
                     6,
-                    BCSN_PI,
-                    MinMax(1, 10**10 - 1),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 10**10 - 1),
+                    converter=Integer(),
                     setter_callback=self._lsn_handler,
                     default=1,
                 ),
@@ -1480,9 +1488,9 @@ class FileHeader(Group):
                     f"LTSH{idx:03}",
                     "Length of nth Text Subheader",
                     4,
-                    BCSN_PI,
-                    MinMax(282, 999_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(282, 999_999),
+                    converter=Integer(),
                     default=282,
                 ),
             )
@@ -1492,9 +1500,9 @@ class FileHeader(Group):
                     f"LT{idx:03}",
                     "Length of nth Text Segment",
                     5,
-                    BCSN_PI,
-                    MinMax(1, 99_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 99_999),
+                    converter=Integer(),
                     setter_callback=self._ltn_handler,
                     default=1,
                 ),
@@ -1518,9 +1526,9 @@ class FileHeader(Group):
                     f"LDSH{idx:03}",
                     "Length of nth Data Extension Segment Subheader",
                     4,
-                    BCSN_PI,
-                    MinMax(200, 999_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(200, 999_999),
+                    converter=Integer(),
                     default=200,
                 ),
             )
@@ -1530,9 +1538,9 @@ class FileHeader(Group):
                     f"LD{idx:03}",
                     "Length of nth Data Extension Segment",
                     9,
-                    BCSN_PI,
-                    MinMax(1, 10**9 - 1),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 10**9 - 1),
+                    converter=Integer(),
                     setter_callback=self._ldn_handler,
                     default=1,
                 ),
@@ -1556,9 +1564,9 @@ class FileHeader(Group):
                     f"LRESH{idx:03}",
                     "Length of nth Reserved Extension Segment Subheader",
                     4,
-                    BCSN_PI,
-                    MinMax(LRESH_MIN, 999_999),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(LRESH_MIN, 999_999),
+                    converter=Integer(),
                     default=LRESH_MIN,
                     setter_callback=self._lreshn_handler,
                 ),
@@ -1569,9 +1577,9 @@ class FileHeader(Group):
                     f"LRE{idx:03}",
                     "Length of nth Reserved Extension Segment",
                     7,
-                    BCSN_PI,
-                    MinMax(1, 10**7 - 1),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 10**7 - 1),
+                    converter=Integer(),
                     default=1,
                     setter_callback=self._lren_handler,
                 ),
@@ -1599,9 +1607,8 @@ class FileHeader(Group):
                     "UDHOFL",
                     "User Defined Header Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -1619,9 +1626,8 @@ class FileHeader(Group):
                     "XHDLOFL",
                     "Extended Header Data Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -1658,9 +1664,9 @@ class ImageSubheader(Group):
                 "IM",
                 "File Part Type",
                 2,
-                BCSA,
-                Constant("IM"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("IM"),
+                converter=StringAscii(),
                 default="IM",
             )
         )
@@ -1669,9 +1675,8 @@ class ImageSubheader(Group):
                 "IID1",
                 "Image Identifier 1",
                 10,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             )
         )
@@ -1680,9 +1685,9 @@ class ImageSubheader(Group):
                 "IDATIM",
                 "Image Date and Time",
                 14,
-                BCSN,
-                DATETIME_REGEX,
-                StringAscii(),
+                charset=BCSN,
+                decoded_range=DATETIME_REGEX,
+                converter=StringAscii(),
                 default="-" * 14,
             )
         )
@@ -1691,9 +1696,8 @@ class ImageSubheader(Group):
                 "TGTID",
                 "Target Identifier",
                 17,
-                BCSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=BCSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1703,25 +1707,31 @@ class ImageSubheader(Group):
                 "IID2",
                 "Image Identifier 2",
                 80,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Image", "I").values())
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer(), default=0)
+            Field(
+                "ENCRYP",
+                "Encryption",
+                1,
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
+                default=0,
+            )
         )
         self._append(
             Field(
                 "ISORCE",
                 "Image Source",
                 42,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
@@ -1731,9 +1741,9 @@ class ImageSubheader(Group):
                 "NROWS",
                 "Number of Significant Rows in Image",
                 8,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1742,9 +1752,9 @@ class ImageSubheader(Group):
                 "NCOLS",
                 "Number of Significant Columns in Image",
                 8,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1753,9 +1763,9 @@ class ImageSubheader(Group):
                 "PVTYPE",
                 "Pixel Value Type",
                 3,
-                BCSA,
-                Enum(["INT", "B", "SI", "R", "C"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["INT", "B", "SI", "R", "C"]),
+                converter=StringAscii(),
                 default="INT",
             )
         )
@@ -1764,8 +1774,8 @@ class ImageSubheader(Group):
                 "IREP",
                 "Image Representation",
                 8,
-                BCSA,
-                Enum(
+                charset=BCSA,
+                decoded_range=Enum(
                     [
                         "MONO",
                         "RGB",
@@ -1778,7 +1788,7 @@ class ImageSubheader(Group):
                         "YCbCr601",
                     ]
                 ),
-                StringAscii(),
+                converter=StringAscii(),
                 default="MONO",
             )
         )
@@ -1787,9 +1797,8 @@ class ImageSubheader(Group):
                 "ICAT",
                 "Image Category",
                 8,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="VIS",
             )
         )
@@ -1798,9 +1807,9 @@ class ImageSubheader(Group):
                 "ABPP",
                 "Actual Bits-Per-Pixel Per Band",
                 2,
-                BCSN_PI,
-                MinMax(1, 96),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, 96),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1809,9 +1818,9 @@ class ImageSubheader(Group):
                 "PJUST",
                 "Pixel Justification",
                 1,
-                BCSA,
-                Enum(["L", "R"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["L", "R"]),
+                converter=StringAscii(),
                 default="R",
             )
         )
@@ -1820,9 +1829,9 @@ class ImageSubheader(Group):
                 "ICORDS",
                 "Image Coordinate Representation",
                 1,
-                BCSA,
-                Enum(["U", "G", "N", "S", "D"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["U", "G", "N", "S", "D"]),
+                converter=StringAscii(),
                 default=None,
                 nullable=True,
                 setter_callback=self._icords_handler,
@@ -1834,9 +1843,8 @@ class ImageSubheader(Group):
                 "NICOM",
                 "Number of Image Comments",
                 1,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 default=0,
                 setter_callback=self._nicom_handler,
             )
@@ -1847,8 +1855,8 @@ class ImageSubheader(Group):
                 "IC",
                 "Image Compression",
                 2,
-                BCSA,
-                Enum(
+                charset=BCSA,
+                decoded_range=Enum(
                     [
                         "NC",
                         "NM",
@@ -1869,7 +1877,7 @@ class ImageSubheader(Group):
                         "M8",
                     ]
                 ),
-                StringAscii(),
+                converter=StringAscii(),
                 setter_callback=self._ic_handler,
                 default="NC",
             )
@@ -1880,9 +1888,8 @@ class ImageSubheader(Group):
                 "NBANDS",
                 "Number of Bands",
                 1,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 setter_callback=self._nbands_handler,
                 default=1,
             )
@@ -1900,9 +1907,9 @@ class ImageSubheader(Group):
                 "ISYNC",
                 "Image Sync Code",
                 1,
-                BCSN_PI,
-                Constant(0),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1911,9 +1918,9 @@ class ImageSubheader(Group):
                 "IMODE",
                 "Image Mode",
                 1,
-                BCSA,
-                Enum(["B", "P", "R", "S"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["B", "P", "R", "S"]),
+                converter=StringAscii(),
                 default="B",
             )
         )
@@ -1922,9 +1929,9 @@ class ImageSubheader(Group):
                 "NBPR",
                 "Number of Blocks Per Row",
                 4,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1933,9 +1940,9 @@ class ImageSubheader(Group):
                 "NBPC",
                 "Number of Blocks Per Column",
                 4,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1944,9 +1951,9 @@ class ImageSubheader(Group):
                 "NPPBH",
                 "Number of Pixels Per Block Horizontal",
                 4,
-                BCSN_PI,
-                MinMax(0, 8192),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(0, 8192),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1955,9 +1962,9 @@ class ImageSubheader(Group):
                 "NPPBV",
                 "Number of Pixels Per Block Vertical",
                 4,
-                BCSN_PI,
-                MinMax(0, 8192),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(0, 8192),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1966,9 +1973,9 @@ class ImageSubheader(Group):
                 "NBPP",
                 "Number of Bits Per Pixel Per Band",
                 2,
-                BCSN_PI,
-                MinMax(1, 96),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, 96),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1977,9 +1984,9 @@ class ImageSubheader(Group):
                 "IDLVL",
                 "Image Display Level",
                 3,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -1988,9 +1995,9 @@ class ImageSubheader(Group):
                 "IALVL",
                 "Attachment Level",
                 3,
-                BCSN_PI,
-                MinMax(0, 998),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(0, 998),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -1999,9 +2006,8 @@ class ImageSubheader(Group):
                 "ILOC",
                 "Image Location",
                 10,
-                BCSN,
-                AnyRange(),
-                IntPair(),
+                charset=BCSN,
+                converter=IntPair(),
                 default=(0, 0),
             )
         )
@@ -2010,9 +2016,9 @@ class ImageSubheader(Group):
                 "IMAG",
                 "Image Magnification",
                 4,
-                BCSA,
-                Regex(r"(\d+\.?\d*)|(\d*\.?\d+)|(\/\d+)"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Regex(r"(\d+\.?\d*)|(\d*\.?\d+)|(\/\d+)"),
+                converter=StringAscii(),
                 default="1.0 ",
             )
         )
@@ -2021,9 +2027,9 @@ class ImageSubheader(Group):
                 "UDIDL",
                 "User Defined Image Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(Constant(0), MinMax(3, None)),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=AnyOf(Constant(0), MinMax(3, None)),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._udidl_handler,
             )
@@ -2033,9 +2039,9 @@ class ImageSubheader(Group):
                 "IXSHDL",
                 "Image Extended Subheader Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(Constant(0), MinMax(3, None)),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=AnyOf(Constant(0), MinMax(3, None)),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._ixshdl_handler,
             )
@@ -2050,9 +2056,8 @@ class ImageSubheader(Group):
                     "IGEOLO",
                     "Image Geographic Location",
                     60,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default="",
                 ),
             )
@@ -2067,9 +2072,8 @@ class ImageSubheader(Group):
                     f"ICOM{idx}",
                     "Image Comment {n}",
                     80,
-                    ECSA,
-                    AnyRange(),
-                    StringISO8859_1(),
+                    charset=ECSA,
+                    converter=StringISO8859_1(),
                     default="",
                 ),
             )
@@ -2083,9 +2087,8 @@ class ImageSubheader(Group):
                     "COMRAT",
                     "Compression Rate Code",
                     4,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default="",
                 ),
             )
@@ -2099,9 +2102,9 @@ class ImageSubheader(Group):
                     "XBANDS",
                     "Number of Multispectral Bands",
                     5,
-                    BCSN_PI,
-                    MinMax(10, None),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(10, None),
+                    converter=Integer(),
                     default=10,
                     setter_callback=self._xbands_handler,
                 ),
@@ -2128,9 +2131,8 @@ class ImageSubheader(Group):
                     f"IREPBAND{idx:05d}",
                     "nth Band Representation",
                     2,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default=None,
                     nullable=True,
                 ),
@@ -2141,9 +2143,8 @@ class ImageSubheader(Group):
                     f"ISUBCAT{idx:05d}",
                     "nth Band Subcategory",
                     6,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default=None,
                     nullable=True,
                 ),
@@ -2154,9 +2155,8 @@ class ImageSubheader(Group):
                     f"IFC{idx:05d}",
                     "nth Band Image Filter Condition",
                     1,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default="N",
                 ),
             )
@@ -2166,9 +2166,8 @@ class ImageSubheader(Group):
                     f"IMFLT{idx:05d}",
                     "nth Band Standard Image Filter Code",
                     3,
-                    BCSA,
-                    AnyRange(),
-                    StringAscii(),
+                    charset=BCSA,
+                    converter=StringAscii(),
                     default=None,
                     nullable=True,
                 ),
@@ -2179,9 +2178,9 @@ class ImageSubheader(Group):
                     f"NLUTS{idx:05d}",
                     "Number of LUTS for the nth Image Band",
                     1,
-                    BCSN_PI,
-                    MinMax(0, 4),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(0, 4),
+                    converter=Integer(),
                     default=0,
                     setter_callback=self._nluts_handler,
                 ),
@@ -2197,9 +2196,8 @@ class ImageSubheader(Group):
                     "UDOFL",
                     "User Defined Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -2216,9 +2214,8 @@ class ImageSubheader(Group):
                     "IXSOFL",
                     "Image Extended Subheader Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -2236,9 +2233,9 @@ class ImageSubheader(Group):
                     f"NELUT{idx:05d}",
                     "Number of LUT Entries for the nth Image Band",
                     5,
-                    BCSN_PI,
-                    MinMax(1, 65536),
-                    Integer(),
+                    charset=BCSN_PI,
+                    decoded_range=MinMax(1, 65536),
+                    converter=Integer(),
                     default=1,
                     setter_callback=self._nelut_handler,
                 ),
@@ -2250,9 +2247,7 @@ class ImageSubheader(Group):
                         f"LUTD{idx:05d}{lutidx}",
                         "nth Image Band, mth LUT",
                         1,
-                        None,
-                        AnyRange(),
-                        Bytes(),
+                        converter=Bytes(),
                         default=b"\x00",
                     ),
                 )
@@ -2303,9 +2298,9 @@ class GraphicSubheader(Group):
                 "SY",
                 "File Part Type",
                 2,
-                BCSA,
-                Constant("SY"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("SY"),
+                converter=StringAscii(),
                 default="SY",
             )
         )
@@ -2314,9 +2309,8 @@ class GraphicSubheader(Group):
                 "SID",
                 "Graphic Identifier",
                 10,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             )
         )
@@ -2325,25 +2319,32 @@ class GraphicSubheader(Group):
                 "SNAME",
                 "Graphic Name",
                 20,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Graphic", "S").values())
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer(), default=0)
+            Field(
+                "ENCRYP",
+                "Encryption",
+                1,
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
+                default=0,
+            )
         )
         self._append(
             Field(
                 "SFMT",
                 "Graphic Type",
                 1,
-                BCSA,
-                Constant("C"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("C"),
+                converter=StringAscii(),
                 default="C",
             )
         )
@@ -2352,9 +2353,9 @@ class GraphicSubheader(Group):
                 "SSTRUCT",
                 "Reserved for Future Use",
                 13,
-                BCSN_PI,
-                Constant(0),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -2363,9 +2364,9 @@ class GraphicSubheader(Group):
                 "SDLVL",
                 "Graphic Display Level",
                 3,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -2374,9 +2375,9 @@ class GraphicSubheader(Group):
                 "SALVL",
                 "Graphic Attachment Level",
                 3,
-                BCSN_PI,
-                MinMax(0, 998),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(0, 998),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -2385,9 +2386,8 @@ class GraphicSubheader(Group):
                 "SLOC",
                 "Graphic Location",
                 10,
-                BCSN,
-                AnyRange(),
-                IntPair(),
+                charset=BCSN,
+                converter=IntPair(),
                 default=(0, 0),
             )
         )
@@ -2396,9 +2396,8 @@ class GraphicSubheader(Group):
                 "SBND1",
                 "First Graphic Bound Location",
                 10,
-                BCSN,
-                AnyRange(),
-                IntPair(),
+                charset=BCSN,
+                converter=IntPair(),
                 default=(0, 0),
             )
         )
@@ -2407,9 +2406,9 @@ class GraphicSubheader(Group):
                 "SCOLOR",
                 "Graphic Color",
                 1,
-                BCSA,
-                Enum(["C", "M"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["C", "M"]),
+                converter=StringAscii(),
                 default="",  # should this have a default?
             )
         )
@@ -2418,9 +2417,8 @@ class GraphicSubheader(Group):
                 "SBND2",
                 "Second Graphic Bound Location",
                 10,
-                BCSN,
-                AnyRange(),
-                IntPair(),
+                charset=BCSN,
+                converter=IntPair(),
                 default=(0, 0),
             )
         )
@@ -2429,9 +2427,9 @@ class GraphicSubheader(Group):
                 "SRES2",
                 "Reserved for Future Use",
                 2,
-                BCSN_PI,
-                Constant(0),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -2440,12 +2438,12 @@ class GraphicSubheader(Group):
                 "SXSHDL",
                 "Graphic Extended Subheader Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(
+                charset=BCSN_PI,
+                decoded_range=AnyOf(
                     Constant(0),
                     MinMax(3, 9741),
                 ),
-                Integer(),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._sxshdl_handler,
             )
@@ -2461,9 +2459,8 @@ class GraphicSubheader(Group):
                     "SXSOFL",
                     "Graphic Extended Subheader Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -2509,9 +2506,9 @@ class TextSubheader(Group):
                 "TE",
                 "File Part Type",
                 2,
-                BCSA,
-                Constant("TE"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("TE"),
+                converter=StringAscii(),
                 default="TE",
             )
         )
@@ -2520,9 +2517,8 @@ class TextSubheader(Group):
                 "TEXTID",
                 "Text Identifier",
                 7,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             )
         )
@@ -2531,9 +2527,9 @@ class TextSubheader(Group):
                 "TXTALVL",
                 "Text Attachment Level",
                 3,
-                BCSN_PI,
-                MinMax(0, 998),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(0, 998),
+                converter=Integer(),
                 default=0,
             )
         )
@@ -2542,9 +2538,9 @@ class TextSubheader(Group):
                 "TXTDT",
                 "Text Date and Time",
                 14,
-                BCSN,
-                DATETIME_REGEX,
-                StringAscii(),
+                charset=BCSN,
+                decoded_range=DATETIME_REGEX,
+                converter=StringAscii(),
                 default="-" * 14,
             )
         )
@@ -2553,25 +2549,32 @@ class TextSubheader(Group):
                 "TXTITL",
                 "Text Title",
                 80,
-                ECSA,
-                AnyRange(),
-                StringISO8859_1(),
+                charset=ECSA,
+                converter=StringISO8859_1(),
                 default=None,
                 nullable=True,
             )
         )
         self._extend(SecurityFields("Security Fields Text", "T").values())
         self._append(
-            Field("ENCRYP", "Encryption", 1, BCSN_PI, Constant(0), Integer(), default=0)
+            Field(
+                "ENCRYP",
+                "Encryption",
+                1,
+                charset=BCSN_PI,
+                decoded_range=Constant(0),
+                converter=Integer(),
+                default=0,
+            )
         )
         self._append(
             Field(
                 "TXTFMT",
                 "Text Format",
                 3,
-                BCSA,
-                Enum(["MTF", "STA", "UTI", "U8S"]),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Enum(["MTF", "STA", "UTI", "U8S"]),
+                converter=StringAscii(),
                 default="",
             )
         )
@@ -2580,12 +2583,12 @@ class TextSubheader(Group):
                 "TXSHDL",
                 "Text Extended Subheader Data Length",
                 5,
-                BCSN_PI,
-                AnyOf(
+                charset=BCSN_PI,
+                decoded_range=AnyOf(
                     Constant(0),
                     MinMax(3, 9717),
                 ),
-                Integer(),
+                converter=Integer(),
                 default=0,
                 setter_callback=self._txshdl_handler,
             )
@@ -2601,9 +2604,8 @@ class TextSubheader(Group):
                     "TXSOFL",
                     "Text Extended Subheader Overflow",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -2634,9 +2636,7 @@ class ReservedExtensionSegment(Group):
                 "subheader",
                 "Placeholder",
                 subheader_size,
-                None,
-                AnyRange(),
-                Bytes(),
+                converter=Bytes(),
                 default=b"\x00" * subheader_size,
             )
         )
@@ -2655,9 +2655,9 @@ class DataExtensionSubheader(Group):
                 "DE",
                 "File Part Type",
                 2,
-                BCSA,
-                Constant("DE"),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant("DE"),
+                converter=StringAscii(),
                 default="DE",
             )
         )
@@ -2666,9 +2666,8 @@ class DataExtensionSubheader(Group):
                 "DESID",
                 "Unique DES Type Identifier",
                 25,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 setter_callback=self._desid_handler,
                 default="",
             )
@@ -2678,9 +2677,9 @@ class DataExtensionSubheader(Group):
                 "DESVER",
                 "Version of the Data Definition",
                 2,
-                BCSN_PI,
-                MinMax(1, None),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=MinMax(1, None),
+                converter=Integer(),
                 default=1,
             )
         )
@@ -2692,9 +2691,8 @@ class DataExtensionSubheader(Group):
                 "DESSHL",
                 "DES User-defined Subheader Length",
                 4,
-                BCSN_PI,
-                AnyRange(),
-                Integer(),
+                charset=BCSN_PI,
+                converter=Integer(),
                 setter_callback=self._desshl_handler,
                 default=0,
             )
@@ -2711,9 +2709,11 @@ class DataExtensionSubheader(Group):
                     "DESOFLW",
                     "DES Overflowed Header Type",
                     6,
-                    BCSA,
-                    Enum(["XHD", "IXSHD", "SXSHD", "TXSHD", "UDHD", "UDID"]),
-                    StringAscii(),
+                    charset=BCSA,
+                    decoded_range=Enum(
+                        ["XHD", "IXSHD", "SXSHD", "TXSHD", "UDHD", "UDID"]
+                    ),
+                    converter=StringAscii(),
                     default="",
                 ),
             )
@@ -2723,9 +2723,8 @@ class DataExtensionSubheader(Group):
                     "DESITEM",
                     "DES Data Item Overflowed",
                     3,
-                    BCSN_PI,
-                    AnyRange(),
-                    Integer(),
+                    charset=BCSN_PI,
+                    converter=Integer(),
                     default=0,
                 ),
             )
@@ -2757,112 +2756,106 @@ class XmlDataContentSubheader(Group):
                 "DESCRC",
                 "Cyclic Redundancy Check",
                 5,
-                BCSN_PI,
-                AnyOf(MinMax(0, 65535), Constant(99999)),
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=AnyOf(MinMax(0, 65535), Constant(99999)),
+                converter=Integer(),
                 default=0,
             ),
             Field(
                 "DESSHFT",
                 "XML File Type",
                 8,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHDT",
                 "Date and Time",
                 20,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHRP",
                 "Responsible Party",
                 40,
-                U8,
-                AnyRange(),
-                StringUtf8(),
+                charset=U8,
+                converter=StringUtf8(),
                 default="",
             ),
             Field(
                 "DESSHSI",
                 "Specification Identifier",
                 60,
-                U8,
-                AnyRange(),
-                StringUtf8(),
+                charset=U8,
+                converter=StringUtf8(),
                 default="",
             ),
             Field(
                 "DESSHSV",
                 "Specification Version",
                 10,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHSD",
                 "Specification Date",
                 20,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHTN",
                 "Target Namespace",
                 120,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHLPG",
                 "Location - Polygon",
                 125,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHLPT",
                 "Location - Point",
                 25,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHLI",
                 "Location - Identifier",
                 20,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
                 "DESSHLIN",
                 "Location Identifier Namespace URI",
                 120,
-                BCSA,
-                AnyRange(),
-                StringAscii(),
+                charset=BCSA,
+                converter=StringAscii(),
                 default="",
             ),
             Field(
-                "DESSHABS", "Abstract", 200, U8, AnyRange(), StringUtf8(), default=""
+                "DESSHABS",
+                "Abstract",
+                200,
+                charset=U8,
+                converter=StringUtf8(),
+                default="",
             ),
         ]
         allowed_sizes = {0, 5, 283, 773}
@@ -2907,9 +2900,8 @@ def DESSHF_Factory(
         "DESSHF",
         "DES User-defined Subheader Fields",
         desshl_field.value,
-        BCSA,
-        AnyRange(),
-        StringAscii(),
+        charset=BCSA,
+        converter=StringAscii(),
         default="",
     )
 
@@ -3400,7 +3392,7 @@ class Tre(Group):
     trel_rename : str
         Alternative to give the 'TREL' field
     length_constraint : RangeCheck or None
-        range check for 'TREL' field.  Defaults to MinMax(1, 99985)
+        Decoded range check for 'TREL' field.  Defaults to MinMax(1, 99985)
 
     Note
     ----
@@ -3432,9 +3424,9 @@ class Tre(Group):
                 tretag_rename,
                 "Unique Extension Type Identifier",
                 6,
-                BCSA,
-                Constant(identifier),
-                StringAscii(),
+                charset=BCSA,
+                decoded_range=Constant(identifier),
+                converter=StringAscii(),
                 default=identifier,
             )
         )
@@ -3444,9 +3436,9 @@ class Tre(Group):
                 trel_rename,
                 "Length of the TREDATA",
                 5,
-                BCSN_PI,
-                length_constraint,
-                Integer(),
+                charset=BCSN_PI,
+                decoded_range=length_constraint,
+                converter=Integer(),
                 default=0,
             )
         )
@@ -3475,9 +3467,7 @@ class UnknownTre(Tre):
                 "TREDATA",
                 "User-Defined Data",
                 0,
-                None,
-                AnyRange(),
-                Bytes(),
+                converter=Bytes(),
                 default=b"",
             )
         )

@@ -420,9 +420,9 @@ def test_field(caplog):
         "MyField",
         "Description",
         5,
-        jbpy.core.BCSN,
-        jbpy.core.MinMax(10, 99),
-        jbpy.core.Integer(),
+        charset=jbpy.core.BCSN,
+        decoded_range=jbpy.core.MinMax(10, 99),
+        converter=jbpy.core.Integer(),
         default=0,
         setter_callback=callback,
     )
@@ -455,9 +455,8 @@ def test_field(caplog):
         "MyField",
         "Description",
         5,
-        jbpy.core.BCSN,
-        jbpy.core.AnyRange(),
-        jbpy.core.StringUtf8(),
+        charset=jbpy.core.BCSN,
+        converter=jbpy.core.StringUtf8(),
         default="",
     )
 
@@ -481,9 +480,8 @@ def test_field(caplog):
             "MyField",
             "Description",
             5,
-            jbpy.core.BCSN,
-            jbpy.core.AnyRange(),
-            jbpy.core.StringUtf8(),
+            charset=jbpy.core.BCSN,
+            converter=jbpy.core.StringUtf8(),
             default="abc",
         )
         assert not caplog.records
@@ -494,9 +492,7 @@ def test_field(caplog):
             "foo",
             "",
             1,
-            None,
-            jbpy.core.AnyRange(),
-            jbpy.core.Bytes(),
+            converter=jbpy.core.Bytes(),
             default=b"\x00\x00",
         )
 
@@ -507,9 +503,9 @@ def test_field_nullable(nullable, caplog):
         "MyField",
         "Description",
         5,
-        jbpy.core.BCSN,
-        jbpy.core.MinMax(10, 100),
-        jbpy.core.Integer(),
+        charset=jbpy.core.BCSN,
+        decoded_range=jbpy.core.MinMax(10, 100),
+        converter=jbpy.core.Integer(),
         default=0,
         nullable=nullable,
     )
@@ -529,6 +525,62 @@ def test_field_nullable(nullable, caplog):
             assert len(caplog.records) == 1
             assert "Invalid field value" in caplog.records[0].message
         assert not field.isvalid()
+
+
+@pytest.mark.parametrize("perform_check", (True, False))
+def test_field_encoded_range(perform_check):
+    kwargs = {}
+    if perform_check:
+        kwargs["encoded_range"] = jbpy.core.Regex(
+            rb"[+-][0-9]{2}"
+        )  # must start with +/-
+    field = jbpy.core.Field(
+        "ExplicitSign",
+        "Fake field that may need to begin with a + or - character",
+        3,
+        charset=jbpy.core.BCSN_I,
+        decoded_range=jbpy.core.MinMax(-8, +7),
+        converter=jbpy.core.Integer(),
+        default=0,
+        **kwargs,
+    )
+    field.value = 1
+    assert field.isvalid() != perform_check  # converter doesn't include sign
+    field.encoded_value = b"+01"
+    assert field.isvalid()
+    field.value = -99
+    assert not field.isvalid()
+
+
+@pytest.mark.parametrize("failing_prop", ("decoded_range", "encoded_range"))
+@pytest.mark.parametrize(
+    "attr_to_set, val", (("value", 24), ("encoded_value", b"8" * 24))
+)
+def test_field_isvalid_exception(failing_prop, attr_to_set, val, caplog):
+    class RaisesError(jbpy.core.RangeCheck):
+        def isvalid(self, decoded_value):
+            raise ValueError()
+
+    field = jbpy.core.Field(
+        "MyField",
+        "My description",
+        24,
+        **{failing_prop: RaisesError},
+        converter=jbpy.core.Integer(),
+        default=0,
+    )
+
+    with caplog.at_level(level=logging.ERROR, logger="jbpy.core"):
+        setattr(field, attr_to_set, val)
+
+        # exception is logged
+        assert len(caplog.records) == 1
+        assert (
+            "An exception occurred when trying to validate" in caplog.records[0].message
+        )
+
+        # but setting the field works anyways
+        assert getattr(field, attr_to_set) == val
 
 
 def test_binaryplaceholder():
