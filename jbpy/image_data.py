@@ -83,9 +83,7 @@ class MaskTable(jbpy.core.Group):
                 "IMDATOFF",
                 "Blocked Image Data Offset",
                 4,
-                None,
-                jbpy.core.AnyRange(),
-                BinaryUnsignedInteger(),
+                converter=BinaryUnsignedInteger(),
                 default=0,
             )
         )
@@ -94,9 +92,8 @@ class MaskTable(jbpy.core.Group):
                 "BMRLNTH",
                 "Block Mask Record Length",
                 2,
-                None,
-                jbpy.core.Enum([0, 4]),
-                BinaryUnsignedInteger(),
+                decoded_range=jbpy.core.Enum([0, 4]),
+                converter=BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_bmrlnth,
             )
@@ -106,9 +103,8 @@ class MaskTable(jbpy.core.Group):
                 "TMRLNTH",
                 "Pad Pixel Mask Record Length",
                 2,
-                None,
-                jbpy.core.Enum([0, 4]),
-                BinaryUnsignedInteger(),
+                decoded_range=jbpy.core.Enum([0, 4]),
+                converter=BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_tmrlnth,
             )
@@ -118,9 +114,7 @@ class MaskTable(jbpy.core.Group):
                 "TPXCDLNTH",
                 "Pad Output Pixel Code Length",
                 2,
-                None,
-                jbpy.core.AnyRange(),
-                BinaryUnsignedInteger(),
+                converter=BinaryUnsignedInteger(),
                 default=0,
                 setter_callback=self._handle_tpxcdlnth,
             )
@@ -144,9 +138,7 @@ class MaskTable(jbpy.core.Group):
                         name,
                         f"Block {block_idx}, Band {band_idx} Offset",
                         4,
-                        None,
-                        jbpy.core.AnyRange(),
-                        BinaryUnsignedInteger(),
+                        converter=BinaryUnsignedInteger(),
                         default=0,
                     ),
                 )
@@ -173,9 +165,7 @@ class MaskTable(jbpy.core.Group):
                         name,
                         f"Pad Pixel {block_idx}, Band {band_idx}",
                         4,
-                        None,
-                        jbpy.core.AnyRange(),
-                        BinaryUnsignedInteger(),
+                        converter=BinaryUnsignedInteger(),
                         default=0,
                     ),
                 )
@@ -190,9 +180,7 @@ class MaskTable(jbpy.core.Group):
                     "TPXCD",
                     "Pad Output Pixel Code",
                     tpxcd_length,
-                    None,
-                    jbpy.core.AnyRange(),
-                    jbpy.core.Bytes(),
+                    converter=jbpy.core.Bytes(),
                     default=b"\x00" * tpxcd_length,
                 ),
             )
