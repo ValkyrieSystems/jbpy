@@ -73,6 +73,7 @@ jbpdump = "jbpy._jbpdump:main"
 
 [project.entry-points."jbpy.extensions.tre"]
 BLOCKA = "jbpy.extensions.tre.BLOCKA:BLOCKA"
+ICHIPB = "jbpy.extensions.tre.ICHIPB:ICHIPB"
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"
 STDIDC = "jbpy.extensions.tre.STDIDC:STDIDC"
 USE00A = "jbpy.extensions.tre.USE00A:USE00A"
