@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Encoded range checking to `core.Field`
-- TRE support: USE00A
+- TRE support: BLOCKA, USE00A, STDIDC
 - `FloatFormat` converter
 
 ### Changed
@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `core.PythonConverter.to_bytes` requires a minimum `size` argument and no longer truncates
 - Segments are initialized to a minimum data size
 - Modified `core.Field.__init__`; some args are now keyword-only and/or optional
+
+### Fixed
+- Minutes pattern no longer overwrites months pattern in `DATETIME_REGEX`
+- Prevent spurious warnings about TRE names shorter than 6 characters
 
 
 ## [0.3.0] - 2025-10-16
@@ -57,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Basic JBP functionality copied from SARkit's `_nitf_io.py`
+- TRE support: SECTGA
 
 [unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.2.0...v0.3.0

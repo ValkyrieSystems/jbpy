@@ -38,9 +38,7 @@ class SECTGA(core.Tre):
                 "(reserved-001)",
                 "",
                 1,
-                charset=core.BCSN,
-                decoded_range=core.Constant(0),
-                converter=core.Integer(),
-                default=0,
+                converter=core.Bytes(),
+                default=b"0",
             )
         )

@@ -1,6 +1,10 @@
 # Commands used by CI
 
-.PHONY: lint build test
+.PHONY: format lint build test
+
+format:
+	ruff check --fix
+	ruff format
 
 lint:
 	ruff check

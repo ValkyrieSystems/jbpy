@@ -1,3 +1,4 @@
+import io
 import os
 
 import pytest
@@ -27,8 +28,32 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
     assert ntf == ntf2
 
 
-def test_available_tres():
+EXPECTED_TRES = (
+    "BLOCKA",
+    "SECTGA",
+    "STDIDC",
+    "USE00A",
+)
+
+
+def test_available_tres_match_expected():
     all_tres = jbpy.available_tres()
-    assert "SECTGA" in all_tres
+    assert set(all_tres).issuperset(EXPECTED_TRES)
+
     for trename in all_tres:
         assert isinstance(jbpy.tre_factory(trename), all_tres[trename])
+
+
+@pytest.mark.parametrize("trename", EXPECTED_TRES)
+def test_tre_factory(trename):
+    tre = jbpy.tre_factory(trename)
+    tre.finalize()
+    buf = io.BytesIO()
+    tre.dump(buf)
+    assert tre[tre.tretag_rename].value == trename
+    assert buf.tell() == tre[tre.trel_rename].value + 11
+
+    buf.seek(0)
+    tre2 = jbpy.tre_factory(trename)
+    tre2.load(buf)
+    assert tre == tre2
