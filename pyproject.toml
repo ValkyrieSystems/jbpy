@@ -73,6 +73,7 @@ jbpdump = "jbpy._jbpdump:main"
 
 [project.entry-points."jbpy.extensions.tre"]
 BLOCKA = "jbpy.extensions.tre.BLOCKA:BLOCKA"
+EXOPTA = "jbpy.extensions.tre.EXOPTA:EXOPTA"
 GEOPSB = "jbpy.extensions.tre.GEOPSB:GEOPSB"
 ICHIPB = "jbpy.extensions.tre.ICHIPB:ICHIPB"
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"
