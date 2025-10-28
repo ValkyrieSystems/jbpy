@@ -30,6 +30,9 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
 
 EXPECTED_TRES = (
     "BLOCKA",
+    "EXOPTA",
+    "GEOPSB",
+    "ICHIPB",
     "PRJPSB",
     "SECTGA",
     "STDIDC",
