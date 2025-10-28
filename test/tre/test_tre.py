@@ -23,6 +23,32 @@ def test_floatformat_sizereplacement(sz):
     assert conv.from_bytes(ev) == 0.1
 
 
+def test_flexiblefloat():
+    conv = tre.FlexibleFloat()
+
+    # all encodable in <=5 characters
+    cases = [
+        (-9999, b"-9999"),
+        (-2.34, b"-2.34"),
+        (-2.2, b"-2.20"),
+        (-1, b"-0001"),
+        (-0.0, b"00000"),
+        (0, b"00000"),
+        (0.0, b"00000"),
+        (0.0001, b".0001"),
+        (0.1, b".1000"),
+        (1, b"00001"),
+        (1.23, b"1.230"),
+        (10000, b"10000"),
+    ]
+    for dv, ev in cases:
+        assert conv.to_bytes(dv, 5) == ev
+        assert conv.from_bytes(ev) == dv
+
+    # rounding/truncation
+    assert conv.to_bytes(54320.99999, 5) == b"54321"
+
+
 def test_range_encodedfixedpoint_required():
     check = tre.EncodedFixedPoint("required", 2, 1)
     assert check.isvalid(b"+12.3")
