@@ -33,6 +33,7 @@ EXPECTED_TRES = (
     "EXOPTA",
     "GEOPSB",
     "ICHIPB",
+    "PRJPSB",
     "SECTGA",
     "STDIDC",
     "USE00A",
