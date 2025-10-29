@@ -1,3 +1,4 @@
+import math
 import re
 from typing import Literal
 
@@ -20,6 +21,39 @@ class FloatFormat(core.PythonConverter):
     def to_bytes_impl(self, decoded_value: float, size: int) -> bytes:
         decoded_value = float(decoded_value)
         return f"{decoded_value:{self.format_spec.format(size=size)}}".encode()
+
+    def from_bytes_impl(self, encoded_value: bytes) -> float:
+        return float(encoded_value)
+
+
+class FlexibleFloat(core.PythonConverter):
+    """Convert to/from float to a flexible string format specification
+
+    Perhaps useful for cases where the presence of a sign and location of the decimal point aren't specified.
+    """
+
+    def to_bytes_impl(self, decoded_value: float, size: int) -> bytes:
+        decoded_value = float(decoded_value)
+        if decoded_value.is_integer():
+            return core.Integer().to_bytes(int(decoded_value), size)
+
+        abs_decoded_value = abs(decoded_value)
+        if abs_decoded_value >= 1:
+            integer_digits = math.floor(math.log10(abs_decoded_value)) + 1
+        else:
+            integer_digits = 0
+
+        if decoded_value < 0:
+            sign = "-"
+        else:
+            sign = ""
+
+        precision = max(size - 1 - len(sign) - integer_digits, 0)
+        if abs_decoded_value < 1:
+            working_str = sign + f"{abs_decoded_value:.{precision}f}"[1:]
+        else:
+            working_str = sign + f"{abs_decoded_value:.{precision}f}"
+        return working_str.encode()
 
     def from_bytes_impl(self, encoded_value: bytes) -> float:
         return float(encoded_value)
