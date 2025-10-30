@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Encoded range checking to `core.Field`
-- TRE support: BLOCKA, EXOPTA, GEOPSB, ICHIPB, PRJPSB, STDIDC, USE00A
+- TRE support: BLOCKA, EXOPTA, GEOPSB, ICHIPB, J2KLRA, PRJPSB, STDIDC, USE00A
 - `FloatFormat` converter
 - `FlexibleFloat` converter
 
