@@ -77,6 +77,23 @@ def test_integer_conv():
     assert conv.from_bytes(b"-0123") == -123
 
 
+def test_integer_conv_sign():
+    assert jbpy.core.Integer().to_bytes(0, 5) == b"00000"
+    assert jbpy.core.Integer("-").to_bytes(0, 5) == b"00000"
+    assert jbpy.core.Integer("+").to_bytes(0, 5) == b"+0000"
+    assert jbpy.core.Integer(" ").to_bytes(0, 5) == b" 0000"
+
+    assert jbpy.core.Integer().to_bytes(24, 5) == b"00024"
+    assert jbpy.core.Integer("-").to_bytes(24, 5) == b"00024"
+    assert jbpy.core.Integer("+").to_bytes(24, 5) == b"+0024"
+    assert jbpy.core.Integer(" ").to_bytes(24, 5) == b" 0024"
+
+    assert jbpy.core.Integer().to_bytes(-24, 5) == b"-0024"
+    assert jbpy.core.Integer("-").to_bytes(-24, 5) == b"-0024"
+    assert jbpy.core.Integer("+").to_bytes(-24, 5) == b"-0024"
+    assert jbpy.core.Integer(" ").to_bytes(-24, 5) == b"-0024"
+
+
 def test_rgb_conv():
     conv = jbpy.core.RGB()
     assert conv.to_bytes((1, 2, 3), 3) == b"\01\02\03"
@@ -135,6 +152,11 @@ def test_range_enum():
     assert not check.isvalid("C")
 
 
+class RaisesError(jbpy.core.RangeCheck):
+    def isvalid(self, decoded_value):
+        raise ValueError()
+
+
 def test_range_anyof():
     check = jbpy.core.AnyOf(
         jbpy.core.Constant("A"),
@@ -145,13 +167,24 @@ def test_range_anyof():
     assert not check.isvalid("C")
 
     # AnyOf short-circuits
-    class RaisesError(jbpy.core.RangeCheck):
-        def isvalid(self, decoded_value):
-            raise ValueError()
-
     with pytest.raises(Exception):
         jbpy.core.AnyOf(RaisesError()).isvalid("A")
     assert jbpy.core.AnyOf(jbpy.core.Constant("A"), RaisesError()).isvalid("A")
+
+
+def test_range_allof():
+    check = jbpy.core.AllOf(
+        jbpy.core.MinMax(-10, 10),
+        jbpy.core.Not(jbpy.core.Constant(0)),
+    )
+    assert check.isvalid(-10)
+    assert check.isvalid(+10)
+    assert not check.isvalid(0)
+
+    # short-circuits
+    with pytest.raises(Exception):
+        jbpy.core.AnyOf(RaisesError()).isvalid("A")
+    assert not jbpy.core.AllOf(jbpy.core.Constant("A"), RaisesError()).isvalid("B")
 
 
 def test_range_not():
@@ -557,10 +590,6 @@ def test_field_encoded_range(perform_check):
     "attr_to_set, val", (("value", 24), ("encoded_value", b"8" * 24))
 )
 def test_field_isvalid_exception(failing_prop, attr_to_set, val, caplog):
-    class RaisesError(jbpy.core.RangeCheck):
-        def isvalid(self, decoded_value):
-            raise ValueError()
-
     field = jbpy.core.Field(
         "MyField",
         "My description",

@@ -20,7 +20,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Iterable
-from typing import Any, Iterator, Self
+from typing import Any, Iterator, Literal, Self
 
 logger = logging.getLogger(__name__)
 
@@ -239,11 +239,25 @@ class Bytes(PythonConverter):
 
 
 class Integer(PythonConverter):
-    """convert to/from int"""
+    """Convert to/from int
+
+    Parameters
+    ----------
+    sign : {'+', '-', space}, optional
+        When to encode with a sign. The meaning of ``sign`` is the same as the meaning of the sign option
+        in python's string format specification mini-language:
+
+        * '+': a sign should be used for positive and negative numbers
+        * '-': a sign should be used for negative numbers only
+        * space: a leading space should be used for positive and a minus sign on negative numbers
+    """
+
+    def __init__(self, sign: Literal["+", "-", " "] = "-"):
+        self.sign = sign
 
     def to_bytes_impl(self, decoded_value: int, size: int) -> bytes:
         decoded_value = int(decoded_value)
-        return f"{decoded_value:0{size}}".encode()
+        return f"{decoded_value:{self.sign}0{size}}".encode()
 
     def from_bytes_impl(self, encoded_value: bytes) -> int:
         return int(encoded_value)
@@ -357,7 +371,7 @@ class Enum(RangeCheck):
 
 
 class AnyOf(RangeCheck):
-    """Field value must match one of many different RangeChecks
+    """Field value must match at least one of many different RangeChecks
 
     Args
     ----
@@ -372,6 +386,24 @@ class AnyOf(RangeCheck):
     def isvalid(self, value: Any) -> bool:
         # Use any(generator) to ensure short circuit logic
         return any(check.isvalid(value) for check in self.ranges)
+
+
+class AllOf(RangeCheck):
+    """Field value must match all of many different RangeChecks
+
+    Args
+    ----
+    *ranges: RangeCheck
+        RangeCheck objects to check against
+
+    """
+
+    def __init__(self, *ranges: RangeCheck):
+        self.ranges = ranges
+
+    def isvalid(self, value: Any) -> bool:
+        # Use all(generator) to ensure short circuit logic
+        return all(check.isvalid(value) for check in self.ranges)
 
 
 class Not(RangeCheck):
