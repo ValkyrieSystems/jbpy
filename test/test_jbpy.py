@@ -35,6 +35,7 @@ EXPECTED_TRES = (
     "ICHIPB",
     "J2KLRA",
     "PRJPSB",
+    "REGPTB",
     "SECTGA",
     "STDIDC",
     "USE00A",
