@@ -34,6 +34,7 @@ EXPECTED_TRES = (
     "GEOPSB",
     "ICHIPB",
     "PRJPSB",
+    "RPC00B",
     "SECTGA",
     "STDIDC",
     "USE00A",

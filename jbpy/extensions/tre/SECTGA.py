@@ -2,7 +2,7 @@ from jbpy import core
 
 
 class SECTGA(core.Tre):
-    """SECTGA TRE
+    """Secondary Targeting Information Extension Format
     See STDI-0002 Volume 1 App E, Table E-23
     """
 
