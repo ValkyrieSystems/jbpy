@@ -9,9 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Encoded range checking to `core.Field`
-- TRE support: BLOCKA, EXOPTA, GEOPSB, ICHIPB, J2KLRA, PRJPSB, STDIDC, USE00A
+- TRE support: BLOCKA, EXOPTA, GEOPSB, ICHIPB, J2KLRA, PRJPSB, RPC00B, STDIDC, USE00A
 - `FloatFormat` converter
 - `FlexibleFloat` converter
+- `sign` parameter to `core.Integer`
+- `core.AllOf` range check
 
 ### Changed
 - `core.Field`s can be nullable (e.g. space-filled)
