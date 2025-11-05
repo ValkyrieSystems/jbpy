@@ -353,10 +353,10 @@ class Regex(RangeCheck):
 class Constant(RangeCheck):
     """Field value must be a constant"""
 
-    def __init__(self, const: str | int):
+    def __init__(self, const: Any):
         self.const = const
 
-    def isvalid(self, value: str | int) -> bool:
+    def isvalid(self, value: Any) -> bool:
         return value == self.const
 
 
@@ -846,12 +846,13 @@ class Group(ComponentCollection, collections.abc.Mapping):
         return self._children[index]
 
     def _insert_after(
-        self, existing: JbpIOComponent, field: JbpIOComponent
+        self, existing: JbpIOComponent, *field: JbpIOComponent
     ) -> JbpIOComponent:
         insert_pos = self._children.index(existing) + 1
-        self._children.insert(insert_pos, field)
-        field._parent = self
-        return field
+        self._children[insert_pos:insert_pos] = field
+        for f in field:
+            f._parent = self
+        return f
 
     def find_all(self, pattern: str) -> Iterator[JbpIOComponent]:
         """Find child components with names matching a regex pattern
