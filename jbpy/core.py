@@ -1,7 +1,7 @@
 """Utilities for reading and writing JBP files (NITF, NSIF)
 
 The Field, Group, Subheaders, and Jbp classes have a dictionary-esque interface
-with key names directly copied from JBP-2024.1 where possible.
+with key names directly copied from JBP-2025.1 where possible.
 
 In JBP, the presence of optional fields is controlled by the values of preceding
 fields.  This library attempts to mimic this behavior by adding or removing fields
@@ -201,7 +201,7 @@ class StringISO8859_1(PythonConverter):  # noqa: N801
 
     Note
     ----
-    JBP-2021.2 Table D-1 specifies the full ECS-A character set, which
+    JBP-2025.1 Table D-1 specifies the full ECS-A character set, which
     happens to match ISO 8859 part 1.
     """
 
@@ -527,7 +527,7 @@ class JbpIOComponent:
 
 class Field(JbpIOComponent):
     """JBP Field containing a single value.
-    Intended to have 1:1 mapping to rows in JBP-2024.1 header tables.
+    Intended to have 1:1 mapping to rows in JBP-2025.1 header tables.
 
     Args
     ----
@@ -923,7 +923,7 @@ class SecurityFields(Group):
 
     Note
     ----
-    See JBP-2024.1 Table 5.10-1 and Table 5.10-2
+    See JBP-2025.1 Table 5.10-1 and Table 5.10-2
 
     """
 
@@ -1146,7 +1146,7 @@ class FileHeader(Group):
 
     Note
     ----
-    See JBP-2024.1 Table 5.11-1
+    See JBP-2025.1 Table 5.11-1
 
     """
 
@@ -1684,7 +1684,7 @@ class ImageSubheader(Group):
 
     Note
     ----
-    See JBP-2024.1 Table 5.13-1
+    See JBP-2025.1 Table 5.13-1
 
     """
 
@@ -2318,7 +2318,7 @@ class GraphicSubheader(Group):
 
     Note
     ----
-    See JBP-2024.1 Table 5.15-1
+    See JBP-2025.1 Table 5.15-1
 
     """
 
@@ -2526,7 +2526,7 @@ class TextSubheader(Group):
 
     Note
     ----
-    See JBP-2024.1 Table 5.17-1
+    See JBP-2025.1 Table 5.17-1
 
     """
 
@@ -2680,6 +2680,20 @@ class ReservedExtensionSegment(Group):
 
 
 class DataExtensionSubheader(Group):
+    """
+    Data Extension Segment (DES) Subheader fields
+
+    Args
+    ----
+    name: str
+        Name to give this component
+
+    Note
+    ----
+    See JBP-2025.1 Table 5.18-1
+
+    """
+
     def __init__(self, name: str):
         super().__init__(name)
         self._append(
@@ -2781,6 +2795,10 @@ class DataExtensionSegment(Group):
 
 
 class XmlDataContentSubheader(Group):
+    """XML_DATA_CONTENT Data Extension Segment (DES) Subheader
+    See STDI-0002 Volume 2 App F, Table F-1
+    """
+
     def __init__(self, name: str, size: int):
         super().__init__(name)
         self.all_fields = [
@@ -3345,7 +3363,7 @@ class Jbp(Group):
         return 0
 
     def update_clevel(self) -> None:
-        """Compute and update the CLEVEL field.  See JBP-2024.1 Table G-1"""
+        """Compute and update the CLEVEL field.  See JBP-2025.1 Table G-1"""
         clevel = 3
         helpers = [attrib for attrib in dir(self) if attrib.startswith("_clevel_")]
         for helper in helpers:

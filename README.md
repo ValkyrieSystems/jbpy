@@ -10,7 +10,7 @@
 * National Imagery Transmission Format (NITF)
 * North Atlantic Treaty Organisation (NATO) Secondary Imagery Format (NSIF)
 
-The Joint BIIF Profile is available from the NSG Standards Registry.  See: https://nsgreg.nga.mil/doc/view?i=5533
+The Joint BIIF Profile is available from the NSG Standards Registry.  See: https://nsgreg.nga.mil/doc/view?i=5674
 
 ## License
 This repository is licensed under the [MIT license](./LICENSE).
