@@ -64,3 +64,37 @@ def test_tre_factory(trename):
     tre2 = jbpy.tre_factory(trename)
     tre2.load(buf)
     assert tre == tre2
+
+
+EXPECTED_DES_SUBHEADERS: tuple[str, int] = (
+    # (DESID, DESVER)
+    ("TRE_OVERFLOW", 1),
+    ("XML_DATA_CONTENT", 1),
+)
+
+
+def test_available_des_subheaders_match_expected():
+    all_des_subheaders = jbpy.available_des_subheaders()
+    assert set(all_des_subheaders).issuperset(EXPECTED_DES_SUBHEADERS)
+
+
+@pytest.mark.parametrize("desidver", EXPECTED_DES_SUBHEADERS)
+def test_des_subheader_factory(desidver):
+    this_name = "".join(map(str, desidver))
+    des_subhdr = jbpy.des_subheader_factory(*desidver, name=this_name)
+    des_subhdr.finalize()
+    assert des_subhdr.name == this_name
+    assert des_subhdr["DESID"].value == desidver[0]
+    assert des_subhdr["DESVER"].value == desidver[1]
+    buf = io.BytesIO()
+    des_subhdr.dump(buf)
+    positive_desshl = des_subhdr["DESSHL"].value > 0
+    has_userdefined_fields = any(
+        f.get_offset() > des_subhdr["DESSHL"].get_offset() for f in des_subhdr.values()
+    )
+    assert positive_desshl == has_userdefined_fields
+
+    buf.seek(0)
+    des_subhdr2 = jbpy.des_subheader_factory(*desidver)
+    des_subhdr2.load(buf)
+    assert des_subhdr == des_subhdr2

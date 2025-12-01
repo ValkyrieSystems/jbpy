@@ -14,6 +14,7 @@ types (int, str, etc...) and serializes to the BIIF format behind the scenes.
 
 import abc
 import collections.abc
+import copy
 import datetime
 import importlib.metadata
 import logging
@@ -773,6 +774,12 @@ class ComponentCollection(JbpIOComponent):
     def __len__(self):
         return len(self._children)
 
+    def _contains(self, item):
+        in_children = item in self._children
+        is_parent_set = item._parent == self
+        assert in_children == is_parent_set
+        return in_children
+
     def get_size(self) -> int:
         size = 0
         for child in self._children:
@@ -796,6 +803,14 @@ class ComponentCollection(JbpIOComponent):
     def _extend(self, fields: Iterable[JbpIOComponent]) -> None:
         for field in fields:
             self._append(field)
+
+    def _replace(self, old_field: JbpIOComponent, new_field: JbpIOComponent) -> None:
+        if not self._contains(old_field):
+            raise ValueError("old_field must be in collection")
+        if new_field._parent is not None:
+            raise ValueError("new_field already has a parent")
+        self._children[self._children.index(old_field)] = new_field
+        new_field._parent = self
 
     def get_offset_of(self, child_obj: JbpIOComponent) -> int:
         offset = self.get_offset()
@@ -2681,12 +2696,18 @@ class ReservedExtensionSegment(Group):
 
 class DataExtensionSubheader(Group):
     """
-    Data Extension Segment (DES) Subheader fields
+    Data Extension Segment (DES) Subheader with unrecognized user-defined subheader fields
 
     Args
     ----
     name: str
         Name to give this component
+    desid_constraint : RangeCheck or None, optional
+        Decoded range check for 'DESID'
+    desver_constraint : RangeCheck or None, optional
+        Decoded range check for 'DESVER'
+    desshl_constraint : RangeCheck or None, optional
+        Decoded range check for 'DESSHL'
 
     Note
     ----
@@ -2694,7 +2715,14 @@ class DataExtensionSubheader(Group):
 
     """
 
-    def __init__(self, name: str):
+    def __init__(
+        self,
+        name: str,
+        *,
+        desid_constraint: RangeCheck | None = None,
+        desver_constraint: RangeCheck | None = None,
+        desshl_constraint: RangeCheck | None = None,
+    ):
         super().__init__(name)
         self._append(
             Field(
@@ -2713,8 +2741,8 @@ class DataExtensionSubheader(Group):
                 "Unique DES Type Identifier",
                 25,
                 charset=BCSA,
+                decoded_range=desid_constraint,
                 converter=StringAscii(),
-                setter_callback=self._desid_handler,
                 default="",
             )
         )
@@ -2724,14 +2752,13 @@ class DataExtensionSubheader(Group):
                 "Version of the Data Definition",
                 2,
                 charset=BCSN_PI,
-                decoded_range=MinMax(1, None),
+                decoded_range=desver_constraint or MinMax(1, None),
                 converter=Integer(),
                 default=1,
             )
         )
         self._extend(SecurityFields("Security Fields DES", "DE").values())
-        # DESOFLW
-        # DESITEM
+        # DESOFLW/DESITEM only in TRE_OVERFLOW DES
         self._append(
             Field(
                 "DESSHL",
@@ -2739,48 +2766,124 @@ class DataExtensionSubheader(Group):
                 4,
                 charset=BCSN_PI,
                 converter=Integer(),
-                setter_callback=self._desshl_handler,
+                decoded_range=desshl_constraint,
                 default=0,
+                setter_callback=self._populate_user_defined_subheader,
             )
         )
-        # DESSHF
+        # DESSHF handled by DESSHL callback
 
-    def _desid_handler(self, field: Field) -> None:
-        self._remove_all("DESOFLW")
-        self._remove_all("DESITEM")
-        if field.value == "TRE_OVERFLOW":
-            after = self._insert_after(
-                self["DESCTLN"],
-                Field(
-                    "DESOFLW",
-                    "DES Overflowed Header Type",
-                    6,
-                    charset=BCSA,
-                    decoded_range=Enum(
-                        ["XHD", "IXSHD", "SXSHD", "TXSHD", "UDHD", "UDID"]
-                    ),
-                    converter=StringAscii(),
-                    default="",
-                ),
-            )
-            self._insert_after(
-                after,
-                Field(
-                    "DESITEM",
-                    "DES Data Item Overflowed",
-                    3,
-                    charset=BCSN_PI,
-                    converter=Integer(),
-                    default=0,
-                ),
-            )
+    def _populate_user_defined_subheader(self, desshl_field: Field):
+        """Populate user-defined subheader fields
 
-    def _desshl_handler(self, field: Field) -> None:
+        Subclasses should override this method with their own definition.
+        """
         self._remove_all("DESSHF")
-        if field.value > 0:
+        if desshl_field.value > 0:
+            # JBP claims DESSHF C-set is BCS-A, but there are some violations in STDI-0002 so we'll treat as bytes
             self._insert_after(
-                field, DESSHF_Factory(self["DESID"], self["DESVER"], field)
+                desshl_field,
+                Field(
+                    "DESSHF",
+                    "DES User-defined Subheader Fields",
+                    desshl_field.value,
+                    converter=Bytes(),
+                    default=b"\x00" * desshl_field.value,
+                ),
             )
+
+
+class TreOverflowDesSubheader(DataExtensionSubheader):
+    """Tagged Record Extension Overflow (TRE-OVERFLOW) DES
+
+    See JBP-2025.1 Table 5.18.2
+    """
+
+    def __init__(self, name):
+        super().__init__(
+            name,
+            desid_constraint=Constant("TRE_OVERFLOW"),
+            desver_constraint=Constant(1),
+            desshl_constraint=Constant(0),
+        )
+
+        # For some reason, the TRE_OVERFLOW fields are not in the user-defined subheader area
+        self._insert_after(
+            self["DESCTLN"],
+            Field(
+                "DESOFLW",
+                "DES Overflowed Header Type",
+                6,
+                charset=BCSA,
+                decoded_range=Enum(["XHD", "IXSHD", "SXSHD", "TXSHD", "UDHD", "UDID"]),
+                converter=StringAscii(),
+                default="",
+            ),
+            Field(
+                "DESITEM",
+                "DES Data Item Overflowed",
+                3,
+                charset=BCSN_PI,
+                converter=Integer(),
+                default=0,
+            ),
+        )
+
+    def _populate_user_defined_subheader(self, desshl_field):
+        """TRE-OVERFLOW doesn't have used-defined subheader fields"""
+
+
+DesSubheaderDefs = dict[tuple[str, int], Callable[[str], DataExtensionSubheader]]
+
+
+def available_des_subheaders() -> DesSubheaderDefs:
+    """All discovered and available Data Extension Segment (DES) subheaders
+
+    Returns
+    -------
+    dict of {(str, int) : callable}
+        Mapping of (desid, desver) pairs to a function that accepts a string-valued name and
+        instantiates the appropriate DES subheader
+    """
+    d: DesSubheaderDefs = {}
+    for plugin in importlib.metadata.entry_points(
+        group="jbpy.extensions.des_subheader"
+    ):
+        try:
+            assert len(plugin.name) == 27
+            desid = plugin.name[:25].rstrip()
+            desver = int(plugin.name[-2:])
+            d[(desid, desver)] = plugin.load()
+        except (AssertionError, ValueError):
+            logger.warning(f"Skipping {plugin=}; unable to parse")
+    return d
+
+
+def des_subheader_factory(
+    desid: str, desver: int, name: str = "subheader"
+) -> DataExtensionSubheader:
+    """Create a Data Extension Segment (DES) subheader
+
+    Args
+    ----
+    desid : str
+        Unique DES type identifier
+    desver : int
+        Version of the data definition
+    name : str, optional
+        Name to give component
+
+    Returns
+    -------
+    DataExtensionSubheader
+        If the DES data definition is available, an object of the appropriate DataExtensionSubheader subclass.
+        Otherwise, a DataExtensionSubheader object with generic DES subheader.
+    """
+    des_subheaders = available_des_subheaders()
+    subheader = des_subheaders.get((desid, desver), DataExtensionSubheader)(name)
+    subheader["DESID"].value = desid
+    subheader["DESVER"].value = desver
+    return subheader
 
 
 class DataExtensionSegment(Group):
@@ -2789,171 +2892,38 @@ class DataExtensionSegment(Group):
         self._append(DataExtensionSubheader("subheader"))
         self._append(BinaryPlaceholder("DESDATA", data_size))
 
+    def set_subheader(self, subhdr: DataExtensionSubheader) -> None:
+        """Set this segment's subheader to ``subhdr``"""
+        if not isinstance(subhdr, DataExtensionSubheader):
+            raise TypeError(f"unexpected {type(subhdr)=}")
+        if subhdr._parent is not None:
+            subhdr = copy.deepcopy(subhdr)
+            subhdr._parent = None
+        subhdr.name = "subheader"
+        self._replace(
+            self["subheader"],
+            subhdr,
+        )
+        if isinstance(self["subheader"], TreOverflowDesSubheader):
+            self._replace(
+                self["DESDATA"], TreSequence("DESDATA", self["DESDATA"].get_size())
+            )
+
+    def _load_impl(self, fd):
+        for fld in ("DE", "DESID", "DESVER"):
+            self["subheader"][fld].load(fd)
+        assert self["subheader"]["DE"].value == "DE"
+        self.set_subheader(
+            des_subheader_factory(
+                self["subheader"]["DESID"].value, self["subheader"]["DESVER"].value
+            )
+        )
+        fd.seek(self.get_offset())
+        super()._load_impl(fd)
+
     def print(self) -> None:
         print(f"# DESegment {self.name}")
         super().print()
-
-
-class XmlDataContentSubheader(Group):
-    """XML_DATA_CONTENT Data Extension Segment (DES) Subheader
-    See STDI-0002 Volume 2 App F, Table F-1
-    """
-
-    def __init__(self, name: str, size: int):
-        super().__init__(name)
-        self.all_fields = [
-            Field(
-                "DESCRC",
-                "Cyclic Redundancy Check",
-                5,
-                charset=BCSN_PI,
-                decoded_range=AnyOf(MinMax(0, 65535), Constant(99999)),
-                converter=Integer(),
-                default=0,
-            ),
-            Field(
-                "DESSHFT",
-                "XML File Type",
-                8,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHDT",
-                "Date and Time",
-                20,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHRP",
-                "Responsible Party",
-                40,
-                charset=U8,
-                converter=StringUtf8(),
-                default="",
-            ),
-            Field(
-                "DESSHSI",
-                "Specification Identifier",
-                60,
-                charset=U8,
-                converter=StringUtf8(),
-                default="",
-            ),
-            Field(
-                "DESSHSV",
-                "Specification Version",
-                10,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHSD",
-                "Specification Date",
-                20,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHTN",
-                "Target Namespace",
-                120,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHLPG",
-                "Location - Polygon",
-                125,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHLPT",
-                "Location - Point",
-                25,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHLI",
-                "Location - Identifier",
-                20,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHLIN",
-                "Location Identifier Namespace URI",
-                120,
-                charset=BCSA,
-                converter=StringAscii(),
-                default="",
-            ),
-            Field(
-                "DESSHABS",
-                "Abstract",
-                200,
-                charset=U8,
-                converter=StringUtf8(),
-                default="",
-            ),
-        ]
-        allowed_sizes = {0, 5, 283, 773}
-        if size not in allowed_sizes:
-            logger.warning(
-                f"Invalid user defined subheader length. {size} not in {allowed_sizes}"
-            )
-
-        current_size = 0
-        for field in self.all_fields:
-            if current_size == size:
-                break
-            elif current_size < size:
-                self._append(field)
-                current_size += field.size
-            elif current_size > size:
-                raise ValueError(f"Invalid XML_DATA_CONTENT header {size=}")
-
-
-def DESSHF_Factory(
-    desid_field: Field, desver_field: Field, desshl_field: Field
-) -> JbpIOComponent:  # noqa: N802
-    """Create the DESSHF field based on the DES type
-
-    Args
-    ----
-    desid_field: Field
-        the DES Subheader's DESID field
-    desver_field: Field
-        the DES Subheader's DESVER field
-    desshl_field: Field
-        the DES Subheader's DESSHL field
-
-    Returns
-    -------
-    JbpIOComponent
-        Either a XmlDataContentSubheader or a Field
-    """
-    if (desid_field.value, desver_field.value) == ("XML_DATA_CONTENT", 1):
-        return XmlDataContentSubheader("DESSHF", desshl_field.value)
-    return Field(
-        "DESSHF",
-        "DES User-defined Subheader Fields",
-        desshl_field.value,
-        charset=BCSA,
-        converter=StringAscii(),
-        default="",
-    )
 
 
 def _update_tre_lengths(header, hdl, ofl, hd):
@@ -3081,31 +3051,33 @@ class Jbp(Group):
             self["FileHeader"][f"LISH{idx + 1:03d}"]._set_value(
                 seg["subheader"].get_size()
             )
-            self["FileHeader"][f"LI{idx + 1:03d}"]._set_value(seg["Data"].size)
+            self["FileHeader"][f"LI{idx + 1:03d}"]._set_value(seg["Data"].get_size())
 
         for idx, seg in enumerate(self["GraphicSegments"]):
             self["FileHeader"][f"LSSH{idx + 1:03d}"]._set_value(
                 seg["subheader"].get_size()
             )
-            self["FileHeader"][f"LS{idx + 1:03d}"]._set_value(seg["Data"].size)
+            self["FileHeader"][f"LS{idx + 1:03d}"]._set_value(seg["Data"].get_size())
 
         for idx, seg in enumerate(self["TextSegments"]):
             self["FileHeader"][f"LTSH{idx + 1:03d}"]._set_value(
                 seg["subheader"].get_size()
             )
-            self["FileHeader"][f"LT{idx + 1:03d}"]._set_value(seg["Data"].size)
+            self["FileHeader"][f"LT{idx + 1:03d}"]._set_value(seg["Data"].get_size())
 
         for idx, seg in enumerate(self["DataExtensionSegments"]):
             self["FileHeader"][f"LDSH{idx + 1:03d}"]._set_value(
                 seg["subheader"].get_size()
             )
-            self["FileHeader"][f"LD{idx + 1:03d}"]._set_value(seg["DESDATA"].size)
+            self["FileHeader"][f"LD{idx + 1:03d}"]._set_value(seg["DESDATA"].get_size())
 
         for idx, seg in enumerate(self["ReservedExtensionSegments"]):
             self["FileHeader"][f"LRESH{idx + 1:03d}"]._set_value(
                 seg["subheader"].get_size()
             )
-            self["FileHeader"][f"LRE{idx + 1:03d}"]._set_value(seg["RESDATA"].size)
+            self["FileHeader"][f"LRE{idx + 1:03d}"]._set_value(
+                seg["RESDATA"].get_size()
+            )
 
     def update_fdt(self) -> None:
         """Set the FDT field to the current time"""
@@ -3526,16 +3498,23 @@ class UnknownTre(Tre):
 
 
 def available_tres() -> dict[str, Callable[[], Tre]]:
-    """All discovered and available TREs
+    """All discovered and available Tagged Record Extensions (TREs)
 
     Returns
     -------
-    Dictionary of TRE names to classes
+    dict of {str : callable}
+        Mapping of TRETAG name to a function with no required arguments that
+        instantiates the appropriate TRE
     """
-    return {
-        plugin.name: plugin.load()
-        for plugin in importlib.metadata.entry_points(group="jbpy.extensions.tre")
-    }
+    d = {}
+    for plugin in importlib.metadata.entry_points(group="jbpy.extensions.tre"):
+        try:
+            assert len(plugin.name) == 6
+            tretag = plugin.name.rstrip()
+            d[tretag] = plugin.load()
+        except AssertionError:
+            logger.warning(f"Skipping {plugin=}; unable to parse")
+    return d
 
 
 def tre_factory(tretag: str) -> Tre:
@@ -3544,7 +3523,7 @@ def tre_factory(tretag: str) -> Tre:
     Arguments
     ---------
     tretag : str
-        The 6 character name of the TRE
+        The 1-6 character name of the TRE
 
     Returns
     -------
