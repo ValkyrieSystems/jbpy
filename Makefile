@@ -16,3 +16,4 @@ build:
 
 test:
 	pytest
+	python -m doctest README.md
