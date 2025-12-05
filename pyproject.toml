@@ -84,3 +84,7 @@ RPC00B = "jbpy.extensions.tre.RPC00B:RPC00B"
 SECTGA = "jbpy.extensions.tre.SECTGA:SECTGA"
 STDIDC = "jbpy.extensions.tre.STDIDC:STDIDC"
 USE00A = "jbpy.extensions.tre.USE00A:USE00A"
+
+[project.entry-points."jbpy.extensions.des_subheader"]
+"TRE_OVERFLOW             01" = "jbpy.core:TreOverflowDesSubheader"
+"XML_DATA_CONTENT         01" = "jbpy.extensions.des_subheader.xml_data_content:XmlDataContentSubheader"

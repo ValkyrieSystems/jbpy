@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for Python 3.14
+- Support for DES subheader plugins
+- `available_des_subheaders` function to `jbpy` namespace
+- Ability to parse TRE-OVERFLOW DES
+
+### Changed
+- Recognized DES user-defined subheader fields are no longer subfields of `DESSHF`
+- `XmlDataContentSubheader` moved from `jbpy.core` to `jbpy.extensions.des_subheader`
+- `jbpy.core.DESSHF_Factory` replaced by `jbpy.core.des_subheader_factory`
 
 
 ## [0.4.0] - 2025-11-05

@@ -406,40 +406,20 @@ def test_deseg():
     assert "DESSHF" not in subheader
     subheader["DESSHL"].value = 10
     assert subheader["DESSHF"].size == 10
-    subheader["DESSHF"].value = "abcd"
+    subheader["DESSHF"].value = b"\xff" * 10
 
     check_roundtrip(ntf)
 
-    # Test XML_DATA_CONTENT (see STDI-0002 Volume 2 Appendix F)
-    assert isinstance(subheader["DESSHF"], jbpy.core.Field)
-    subheader["DESID"].value = "XML_DATA_CONTENT"
-    subheader["DESVER"].value = 1
+    # Test TRE_OVERFLOW (see Table 5.18.2)
+    ntf["FileHeader"]["NUMDES"].value += 1
+    ntf["DataExtensionSegments"][-1].set_subheader(
+        jbpy.des_subheader_factory("TRE_OVERFLOW", 1)
+    )
+    subheader = ntf["DataExtensionSegments"][-1]["subheader"]
+    assert {"DESOFLW", "DESITEM"}.issubset(subheader.keys())
+    assert subheader["DESSHL"].value == 0
+    ntf["DataExtensionSegments"][-1]["DESDATA"].append(jbpy.core.tre_factory("SECTGA"))
 
-    subheader["DESSHL"].value = 0
-    assert "DESSHF" not in subheader
-
-    with pytest.raises(ValueError):
-        subheader["DESSHL"].value = 1  # must exactly match a length of fields
-
-    subheader["DESSHL"].value = 5
-    assert "DESCRC" in subheader["DESSHF"]
-    assert "DESSHFT" not in subheader["DESSHF"]
-
-    subheader["DESSHL"].value = 283
-    assert "DESCRC" in subheader["DESSHF"]
-    assert "DESSHFT" in subheader["DESSHF"]
-    assert "DESSHLPG" not in subheader["DESSHF"]
-
-    subheader["DESSHL"].value = 773
-    assert "DESCRC" in subheader["DESSHF"]
-    assert "DESSHFT" in subheader["DESSHF"]
-    assert "DESSHLPG" in subheader["DESSHF"]
-    assert "DESSHABS" in subheader["DESSHF"]
-
-    # Fill out fields that don't have default values
-    subheader["DESSHF"]["DESSHFT"].value = "XML"
-    subheader["DESSHF"]["DESSHDT"].value = "1955-11-05"
-    subheader["DESSHF"]["DESSHSD"].value = "2015-10-21"
     check_roundtrip(ntf)
 
 
