@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `XmlDataContentSubheader` moved from `jbpy.core` to `jbpy.extensions.des_subheader`
 - `jbpy.core.DESSHF_Factory` replaced by `jbpy.core.des_subheader_factory`
 
+### Fixed
+- Typo in `jbpy.core.TextSubheader` field `TXTFMT` range check: UTI -> UT1
+
 
 ## [0.4.0] - 2025-11-05
 
