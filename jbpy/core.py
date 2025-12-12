@@ -2620,7 +2620,7 @@ class TextSubheader(Group):
                 "Text Format",
                 3,
                 charset=BCSA,
-                decoded_range=Enum(["MTF", "STA", "UTI", "U8S"]),
+                decoded_range=Enum(["MTF", "STA", "UT1", "U8S"]),
                 converter=StringAscii(),
                 default="",
             )
