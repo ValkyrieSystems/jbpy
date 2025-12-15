@@ -47,7 +47,7 @@ class BinaryFile_RW(BinaryFile_R):
 class SubFile:
     """File-like object mapping to a contiguous subset of another file-like object"""
 
-    def __init__(self, file: BinaryFile_R, start: int, length: int):
+    def __init__(self, file: Any, start: int, length: int):
         """
         Initialize a SubFile view.
 
@@ -122,26 +122,29 @@ class SubFile:
         self._pos += len(data)
         return data
 
-    def readinto(self, b):
+    def readinto(self, b) -> None:
         self._file.seek(self._start + self._pos)
         num_read = self._file.readinto(b)
         if num_read is not None:
             self._pos += num_read
         return num_read
 
-    def readline(self, size=-1):
+    def readline(self, size=-1) -> bytes:
         self._file.seek(self._start + self._pos)
         data = self._file.readline(size)
         self._pos += len(data)
         return data
 
-    def readlines(self, hint=-1):
+    def readlines(self, hint=-1) -> list[bytes]:
         self._file.seek(self._start + self._pos)
         before = self._file.tell()
         data = self._file.readlines(hint)
         after = self._file.tell()
         self._pos += after - before
         return data
+
+    def readable(self) -> bool:
+        return self._file.readable()
 
 
 class PythonConverter(abc.ABC):
@@ -510,7 +513,7 @@ class JbpIOComponent:
     def finalize(self):
         """Perform any necessary final updates"""
 
-    def as_filelike(self, file: BinaryFile_R) -> SubFile:
+    def as_filelike(self, file: Any) -> SubFile:
         """Create file object containing just this component
 
         Arguments
