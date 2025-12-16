@@ -800,3 +800,5 @@ def test_subfile(tmp_path):
             all_data[start + expected_pos : 501],
             all_data[501:551],
         ]
+
+        assert subfile.readable()

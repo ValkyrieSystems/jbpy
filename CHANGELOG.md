@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for DES subheader plugins
 - `available_des_subheaders` function to `jbpy` namespace
 - Ability to parse TRE-OVERFLOW DES
+- `readable` method to `SubFile`
 
 ### Changed
 - Recognized DES user-defined subheader fields are no longer subfields of `DESSHF`
