@@ -95,4 +95,4 @@ class REGPTB(core.Tre):
                 ),
             )
         if num < num_before:
-            self._children = self._children[: 3 + (6 * num)]
+            del self._children[3 + (6 * num) :]

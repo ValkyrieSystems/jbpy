@@ -134,14 +134,14 @@ class XmlDataContentSubheader(core.DataExtensionSubheader):
             ),
         ]
 
-    def _populate_user_defined_subheader(self, desshl_field):
+    def _populate_user_defined_subheader(self, desshl_field) -> None:
         if desshl_field.value not in self.allowed_subheader_lengths:
             logger.warning(
                 f"Invalid user defined subheader length. {desshl_field.value} not in {self.allowed_subheader_lengths}"
             )
 
         # remove current user-defined subheader fields
-        self._children = self._children[: self._children.index(desshl_field) + 1]
+        del self._children[self._children.index(desshl_field) + 1 :]
         current_size = 0
         for field in self.all_fields:
             if current_size == desshl_field.value:

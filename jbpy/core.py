@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Iterable
-from typing import Any, Iterator, Literal, Self
+from typing import Any, Final, Iterator, Literal, Self
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +764,7 @@ class ComponentCollection(JbpIOComponent):
 
     def __init__(self, name: str):
         super().__init__(name)
-        self._children: list[JbpIOComponent] = []
+        self._children: Final[list[JbpIOComponent]] = []
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -774,7 +774,7 @@ class ComponentCollection(JbpIOComponent):
             [left == right for left, right in zip(self._children, other._children)]
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._children)
 
     def _contains(self, item):
