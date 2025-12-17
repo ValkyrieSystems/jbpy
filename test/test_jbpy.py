@@ -27,6 +27,19 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
 
     assert ntf == ntf2
 
+    file_components_to_compare = [ntf["FileHeader"]]
+    for segtype in list(ntf.values())[1:]:
+        file_components_to_compare.extend(x["subheader"] for x in segtype)
+    for component in file_components_to_compare:
+        with filename.open("rb") as f_orig, copy_filename.open("rb") as f_copy:
+            offset = component.get_offset()
+            size = component.get_size()
+            f_orig.seek(offset)
+            bytes_orig = f_orig.read(size)
+            f_copy.seek(offset)
+            bytes_copy = f_copy.read(size)
+            assert bytes_orig == bytes_copy
+
 
 EXPECTED_TRES = (
     "BLOCKA",
