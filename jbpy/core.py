@@ -486,7 +486,7 @@ class JbpIOComponent:
         try:
             return self._dump_impl(fd)
         except Exception:
-            logger.error(f"Failed to wite {self.name}")
+            logger.error(f"Failed to write {self.name}")
             raise
 
     def _load_impl(self, fd: BinaryFile_R) -> None:
