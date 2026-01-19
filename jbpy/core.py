@@ -17,6 +17,8 @@ import collections.abc
 import copy
 import datetime
 import importlib.metadata
+import io
+import json
 import logging
 import os
 import re
@@ -506,7 +508,22 @@ class JbpIOComponent:
         """Size of this component in bytes"""
         raise NotImplementedError()
 
-    def print(self) -> None:
+    def as_json(self, full: bool = False) -> str:
+        """Return a JSON representation of the component
+        Args
+        ----
+        full : bool
+            Include additional details such as offset and length
+        """
+        return json.dumps(self, indent=2, cls=_JsonEncoder, full_details=full)
+
+    def as_text(self) -> str:
+        """Return a text representation of the component"""
+        buf = io.StringIO()
+        self.print(file=buf)
+        return buf.getvalue()
+
+    def print(self, *, file=None) -> None:
         """Print information about the component to stdout"""
         raise NotImplementedError()
 
@@ -713,9 +730,10 @@ class Field(JbpIOComponent):
     def get_size(self) -> int:
         return self.size
 
-    def print(self) -> None:
+    def print(self, *, file=None) -> None:
         print(
-            f"{self.name:15}{self.size:11} @ {self.get_offset():11} {self.encoded_value!r}"
+            f"{self.name:15}{self.size:11} @ {self.get_offset():11} {self.encoded_value!r}",
+            file=file,
         )
 
 
@@ -755,8 +773,10 @@ class BinaryPlaceholder(JbpIOComponent):
     def get_size(self) -> int:
         return self.size
 
-    def print(self) -> None:
-        print(f"{self.name:15}{self.size:11} @ {self.get_offset():11} <Binary>")
+    def print(self, *, file=None) -> None:
+        print(
+            f"{self.name:15}{self.size:11} @ {self.get_offset():11} <Binary>", file=file
+        )
 
 
 class ComponentCollection(JbpIOComponent):
@@ -826,9 +846,9 @@ class ComponentCollection(JbpIOComponent):
         else:
             raise ValueError(f"Could not find {child_obj.name}")
 
-    def print(self) -> None:
+    def print(self, *, file=None) -> None:
         for child in self._children:
-            child.print()
+            child.print(file=file)
 
     def finalize(self):
         for child in self._children:
@@ -893,10 +913,6 @@ class Group(ComponentCollection, collections.abc.Mapping):
 
     def _index(self, name: str) -> int:
         return self._child_names().index(name)
-
-    def print(self) -> None:
-        for child in self._children:
-            child.print()
 
 
 class SegmentList(ComponentCollection, collections.abc.Sequence):
@@ -2320,9 +2336,9 @@ class ImageSegment(Group):
         self._append(ImageSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self) -> None:
-        print(f"# ImageSegment {self.name}")
-        super().print()
+    def print(self, *, file=None) -> None:
+        print(f"# ImageSegment {self.name}", file=file)
+        super().print(file=file)
 
 
 class GraphicSubheader(Group):
@@ -2528,9 +2544,9 @@ class GraphicSegment(Group):
         self._append(GraphicSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self) -> None:
-        print(f"# GraphicSegment {self.name}")
-        super().print()
+    def print(self, *, file=None) -> None:
+        print(f"# GraphicSegment {self.name}", file=file)
+        super().print(file=file)
 
 
 class TextSubheader(Group):
@@ -2673,9 +2689,9 @@ class TextSegment(Group):
         self._append(TextSubheader("subheader"))
         self._append(BinaryPlaceholder("Data", data_size))
 
-    def print(self) -> None:
-        print(f"# TextSegment {self.name}")
-        super().print()
+    def print(self, *, file=None) -> None:
+        print(f"# TextSegment {self.name}", file=file)
+        super().print(file=file)
 
 
 class ReservedExtensionSegment(Group):
@@ -2692,9 +2708,9 @@ class ReservedExtensionSegment(Group):
         )
         self._append(BinaryPlaceholder("RESDATA", data_size))
 
-    def print(self) -> None:
-        print(f"# ReservedExtensionSegment {self.name}")
-        super().print()
+    def print(self, *, file=None) -> None:
+        print(f"# ReservedExtensionSegment {self.name}", file=file)
+        super().print(file=file)
 
 
 class DataExtensionSubheader(Group):
@@ -2924,9 +2940,9 @@ class DataExtensionSegment(Group):
         fd.seek(self.get_offset())
         super()._load_impl(fd)
 
-    def print(self) -> None:
-        print(f"# DESegment {self.name}")
-        super().print()
+    def print(self, *, file=None) -> None:
+        print(f"# DESegment {self.name}", file=file)
+        super().print(file=file)
 
 
 def _update_tre_lengths(header, hdl, ofl, hd):
@@ -3538,3 +3554,36 @@ def tre_factory(tretag: str) -> Tre:
         return tres[tretag]()
 
     return UnknownTre(tretag)
+
+
+class _JsonEncoder(json.JSONEncoder):
+    def __init__(self, *args, full_details=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.full_details = full_details
+
+    def default(self, obj):
+        if isinstance(obj, collections.abc.Mapping):
+            return dict(obj)
+        if isinstance(obj, bytes):
+            return list(obj)
+        if isinstance(obj, Field):
+            if self.full_details:
+                return {
+                    "size": obj.size,
+                    "offset": obj.get_offset(),
+                    "value": obj.value,
+                }
+            return obj.value
+        if isinstance(obj, BinaryPlaceholder):
+            if self.full_details:
+                return {
+                    "size": obj.size,
+                    "offset": obj.get_offset(),
+                    "value": "__binary__",
+                }
+            return f"__binary__ ({obj.get_size()} bytes)"
+        if isinstance(obj, SegmentList):
+            return list(obj)
+        if isinstance(obj, TreSequence):
+            return list(obj)
+        return super().default(obj)

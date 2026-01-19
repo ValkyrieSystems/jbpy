@@ -1,6 +1,4 @@
 import argparse
-import collections.abc
-import json
 import os
 import sys
 
@@ -10,39 +8,6 @@ try:
     from smart_open import open
 except ImportError:
     pass
-
-
-class _Encoder(json.JSONEncoder):
-    def __init__(self, *args, full_details=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.full_details = full_details
-
-    def default(self, obj):
-        if isinstance(obj, collections.abc.Mapping):
-            return dict(obj)
-        if isinstance(obj, bytes):
-            return list(obj)
-        if isinstance(obj, jbpy.core.Field):
-            if self.full_details:
-                return {
-                    "size": obj.size,
-                    "offset": obj.get_offset(),
-                    "value": obj.value,
-                }
-            return obj.value
-        if isinstance(obj, jbpy.core.BinaryPlaceholder):
-            if self.full_details:
-                return {
-                    "size": obj.size,
-                    "offset": obj.get_offset(),
-                    "value": "__binary__",
-                }
-            return f"__binary__ ({obj.get_size()} bytes)"
-        if isinstance(obj, jbpy.core.SegmentList):
-            return list(obj)
-        if isinstance(obj, jbpy.core.TreSequence):
-            return list(obj)
-        return super().default(obj)
 
 
 def main(args=None):
@@ -63,7 +28,7 @@ def main(args=None):
     try:
         if "json" in config.format:
             full_details = config.format == "json-full"
-            print(json.dumps(jbp, indent=2, cls=_Encoder, full_details=full_details))
+            print(jbp.as_json(full_details))
         else:
             jbp.print()
     except BrokenPipeError:

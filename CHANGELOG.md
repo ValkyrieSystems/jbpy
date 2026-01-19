@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Added
+- `print()` method now supports the `file` argument
+- `as_json()` and `as_text()` methods
+
 
 ## [0.5.1] - 2025-12-17
 

@@ -1,6 +1,7 @@
 import datetime
 import filecmp
 import io
+import json
 import logging
 import os
 import pathlib
@@ -324,9 +325,20 @@ def test_fileheader(capsys):
     ntf.finalize()
     ntf.print()
     captured = capsys.readouterr()
-    assert "GraphicSegment" in captured.out
-    assert "TextSegment" in captured.out
-    assert "ReservedExtensionSegment" in captured.out
+    assert "GraphicSegment 1" in captured.out
+    assert "TextSegment 1" in captured.out
+    assert "ReservedExtensionSegment 1" in captured.out
+
+    buf = io.StringIO()
+    ntf.print(file=buf)
+    assert captured.out == buf.getvalue()
+
+    txt = ntf.as_text()
+    assert "GraphicSegment 1" in txt
+    assert "TextSegment 1" in txt
+    assert "ReservedExtensionSegment 1" in txt
+
+    assert "GraphicSegments" in json.loads(ntf.as_json())
 
 
 def test_imseg():

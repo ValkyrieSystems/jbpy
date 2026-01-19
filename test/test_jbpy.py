@@ -1,4 +1,5 @@
 import io
+import json
 import os
 
 import pytest
@@ -16,6 +17,12 @@ def test_roundtrip_jitc_quicklook(filename, tmp_path):
     ntf = jbpy.Jbp()
     with filename.open("rb") as file:
         ntf.load(file)
+
+    txt = ntf.as_text()
+    assert "FHDR" in txt
+    assert "@" in txt
+
+    assert "FileHeader" in json.loads(ntf.as_json())
 
     copy_filename = tmp_path / "copy.nitf"
     with copy_filename.open("wb") as fd:
