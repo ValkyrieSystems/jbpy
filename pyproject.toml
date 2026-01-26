@@ -63,6 +63,12 @@ examples = [
     "pillow",
 ]
 
+[dependency-groups]
+docs = [
+    "pdoc>=16.0.0",
+    "zensical>=0.0.18",
+]
+
 [project.urls]
 Repository = "https://github.com/ValkyrieSystems/jbpy"
 "Bug Tracker" = "https://github.com/ValkyrieSystems/jbpy/issues"
