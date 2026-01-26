@@ -46,7 +46,7 @@ classifiers = [
 dependencies = [
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "aiohttp",
     "mypy",
@@ -54,7 +54,7 @@ dev = [
     "pytest",
     "smart_open[http]",
     "numpy",
-    "jbpy[examples]",
+    {include-group = "examples"},
 ]
 
 # Dependencies needed to run the examples
