@@ -124,26 +124,41 @@ class SubFile:
         self._pos += len(data)
         return data
 
-    def readinto(self, b) -> None:
+    def readinto(self, b) -> int | None:
+        if self._pos >= self._length:
+            return 0
         self._file.seek(self._start + self._pos)
-        num_read = self._file.readinto(b)
+        bytes_remaining = self._length - self._pos
+        v = memoryview(b)
+        num_read = self._file.readinto(v[:bytes_remaining])
         if num_read is not None:
             self._pos += num_read
         return num_read
 
     def readline(self, size=-1) -> bytes:
+        if self._pos >= self._length:
+            return b""
         self._file.seek(self._start + self._pos)
-        data = self._file.readline(size)
+        bytes_remaining = self._length - self._pos
+        _sz = bytes_remaining if size == -1 else min(bytes_remaining, size)
+        data = self._file.readline(_sz)
         self._pos += len(data)
         return data
 
     def readlines(self, hint=-1) -> list[bytes]:
+        if self._pos >= self._length:
+            return []
         self._file.seek(self._start + self._pos)
-        before = self._file.tell()
-        data = self._file.readlines(hint)
-        after = self._file.tell()
-        self._pos += after - before
-        return data
+        line = self.readline()
+        n = len(line)
+        lines = [line]
+
+        while line and (n < hint or (hint <= 0 or hint is None)):
+            line = self.readline()
+            if line:
+                lines.append(line)
+                n += len(line)
+        return lines
 
     def readable(self) -> bool:
         return self._file.readable()

@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `print()` method now supports the `file` argument
 - `as_json()` and `as_text()` methods
 
+## Fixed
+- `SubFile` methods `readinto`, `readline`, and `readlines` now terminate at the end of the subfile
+
 
 ## [0.5.1] - 2025-12-17
 
