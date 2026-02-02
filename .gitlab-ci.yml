@@ -12,7 +12,7 @@ default:
 lint:
   stage: build
   script:
-    - pip install .[dev]
+    - python -m pip install --group dev .
     - make lint
 
 build_wheel:
@@ -33,7 +33,7 @@ test:
     echo ${wheels[*]}
     [ ${#wheels[*]} -eq 1 ]  # make sure there is only one
     wheel_file=${wheels[0]}
-    python -m pip install ${wheel_file}[dev]
+    python -m pip install --group dev ${wheel_file}
     make test
 
 docs:
