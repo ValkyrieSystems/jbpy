@@ -63,7 +63,6 @@ examples = [
     "pillow",
 ]
 
-[dependency-groups]
 docs = [
     "pdoc>=16.0.0",
     "zensical>=0.0.18",
