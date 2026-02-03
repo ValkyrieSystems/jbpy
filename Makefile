@@ -1,6 +1,6 @@
 # Commands used by CI
 
-.PHONY: format lint build test
+.PHONY: format lint build test docs
 
 format:
 	ruff check --fix
@@ -17,3 +17,7 @@ build:
 test:
 	pytest
 	python -m doctest README.md
+
+docs:
+	python docs/make.py
+	zensical build -f docs/zensical.toml --clean

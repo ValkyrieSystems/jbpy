@@ -7,6 +7,7 @@
 [![Tests](https://github.com/ValkyrieSystems/jbpy/actions/workflows/test.yml/badge.svg)](https://github.com/ValkyrieSystems/jbpy/actions/workflows/test.yml)
 
 **jbpy** is a library for reading and writing Joint BIIF Profile files. Including:
+
 * National Imagery Transmission Format (NITF)
 * North Atlantic Treaty Organisation (NATO) Secondary Imagery Format (NSIF)
 

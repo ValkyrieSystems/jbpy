@@ -35,3 +35,13 @@ test:
     wheel_file=${wheels[0]}
     python -m pip install --group dev ${wheel_file}
     make test
+
+docs:
+  stage: test
+  script:
+    - python -m pip install --group docs .
+    - make docs
+  artifacts:
+    paths:
+      - docs/site/*
+    expire_in: 1 week
