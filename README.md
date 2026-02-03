@@ -5,6 +5,7 @@
 [![SPEC 0 — Minimum Supported Dependencies](https://img.shields.io/badge/SPEC-0-green?labelColor=%23004811&color=%235CA038)](https://scientific-python.org/specs/spec-0000/)
 <br>
 [![Tests](https://github.com/ValkyrieSystems/jbpy/actions/workflows/test.yml/badge.svg)](https://github.com/ValkyrieSystems/jbpy/actions/workflows/test.yml)
+[![Documentation Status](https://readthedocs.org/projects/jbpy/badge/?version=latest)](https://jbpy.readthedocs.io/en/latest/?badge=latest)
 
 **jbpy** is a library for reading and writing Joint BIIF Profile files. Including:
 
