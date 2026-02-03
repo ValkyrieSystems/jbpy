@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## Added
+
+## [0.6.0] - 2026-02-03
+
+### Added
 - `print()` method now supports the `file` argument
 - `as_json()` and `as_text()` methods
 
-## Fixed
+### Fixed
 - `SubFile` methods `readinto`, `readline`, and `readlines` now terminate at the end of the subfile
 
 
@@ -100,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic JBP functionality copied from SARkit's `_nitf_io.py`
 - TRE support: SECTGA
 
-[unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.5.1...HEAD
+[unreleased]: https://github.com/ValkyrieSystems/jbpy/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/ValkyrieSystems/jbpy/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ValkyrieSystems/jbpy/compare/v0.3.0...v0.4.0
