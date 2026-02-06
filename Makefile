@@ -9,6 +9,7 @@ format:
 lint:
 	ruff check
 	ruff format --diff
+	numpydoc lint jbpy/*.py
 	mypy jbpy
 
 build:

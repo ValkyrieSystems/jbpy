@@ -47,21 +47,19 @@ class BinaryFile_RW(BinaryFile_R):
 
 
 class SubFile:
-    """File-like object mapping to a contiguous subset of another file-like object"""
+    """File-like object mapping to a contiguous subset of another file-like object
+
+    Parameters
+    ----------
+    file : file-like
+        An open file object.  Must be binary.
+    start : int
+        Start byte offset of the subfile
+    length : int
+        Number of bytes to expose from the start
+    """
 
     def __init__(self, file: Any, start: int, length: int):
-        """
-        Initialize a SubFile view.
-
-        Arguments
-        ---------
-        file : file-like
-            An open file object.  Must be binary.
-        start : int
-            Start byte offset of the subfile
-        length : int
-            Number of bytes to expose from the start
-        """
         self._file = file
         self._start = start
         self._length = length
@@ -71,8 +69,8 @@ class SubFile:
         """
         Seek to a position within the subfile.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         offset : int
             Offset to seek
         whence : int
@@ -106,8 +104,8 @@ class SubFile:
         """
         Read data from the subfile.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         size : int
             Number of bytes to read, or -1 for all remaining
         """
@@ -220,8 +218,8 @@ class StringAscii(PythonConverter):
 class StringISO8859_1(PythonConverter):  # noqa: N801
     """Convert to/from an ISO 8859-1 str
 
-    Note
-    ----
+    Notes
+    -----
     JBP-2025.1 Table D-1 specifies the full ECS-A character set, which
     happens to match ISO 8859 part 1.
     """
@@ -339,13 +337,12 @@ class AnyRange(RangeCheck):
 class MinMax(RangeCheck):
     """Field has a minimum and/or maximum value
 
-    Args
-    ----
-    minimum:
+    Parameters
+    ----------
+    minimum
         Minimum value.  A value of 'None' indicates no minimum.
-    maximum:
+    maximum
         Maximum value.  A value of 'None' indicates no maximum.
-
     """
 
     def __init__(self, minimum: int | float | None, maximum: int | float | None):
@@ -394,11 +391,10 @@ class Enum(RangeCheck):
 class AnyOf(RangeCheck):
     """Field value must match at least one of many different RangeChecks
 
-    Args
-    ----
+    Parameters
+    ----------
     *ranges: RangeCheck
         RangeCheck objects to check against
-
     """
 
     def __init__(self, *ranges: RangeCheck):
@@ -412,11 +408,10 @@ class AnyOf(RangeCheck):
 class AllOf(RangeCheck):
     """Field value must match all of many different RangeChecks
 
-    Args
-    ----
+    Parameters
+    ----------
     *ranges: RangeCheck
         RangeCheck objects to check against
-
     """
 
     def __init__(self, *ranges: RangeCheck):
@@ -466,15 +461,15 @@ class JbpIOComponent:
 
     def load(self, fd: BinaryFile_R) -> Self:
         """Read from a file descriptor
-        Args
-        ----
-        fd: file-like
+
+        Parameters
+        ----------
+        fd : file-like
             Binary file-like object to read from
 
         Returns
         -------
         A reference to self
-
         """
         try:
             self._load_impl(fd)
@@ -485,11 +480,12 @@ class JbpIOComponent:
 
     def dump(self, fd: BinaryFile_RW, seek_first: bool = False) -> int:
         """Write to a file descriptor
-        Args
-        ----
-        fd: file-like
+
+        Parameters
+        ----------
+        fd : file-like
             Binary file-like object to write to
-        seek_first: bool
+        seek_first : bool
             Seek to the components offset before writing
 
         Returns
@@ -525,8 +521,9 @@ class JbpIOComponent:
 
     def as_json(self, full: bool = False) -> str:
         """Return a JSON representation of the component
-        Args
-        ----
+
+        Parameters
+        ----------
         full : bool
             Include additional details such as offset and length
         """
@@ -548,8 +545,8 @@ class JbpIOComponent:
     def as_filelike(self, file: Any) -> SubFile:
         """Create file object containing just this component
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         file : file-like
             File object for entire file
 
@@ -565,27 +562,27 @@ class Field(JbpIOComponent):
     """JBP Field containing a single value.
     Intended to have 1:1 mapping to rows in JBP-2025.1 header tables.
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name of this field
-    description: str
+    description : str
         Text description of the field
-    size: int
+    size : int
         Size in bytes of the field
-    charset: str or None, optional
+    charset : str or None, optional
         regex expression matching a single character. If ``None``, character set check is skipped.
-    encoded_range: RangeCheck or None, optional
+    encoded_range : RangeCheck or None, optional
         Checker for the encoded value. If ``None``, encoded validation is skipped.
-    decoded_range: RangeCheck or None, optional
+    decoded_range : RangeCheck or None, optional
         Checker for the decoded value. If ``None``, decoded validation is skipped.
-    converter: PythonConverter
+    converter : PythonConverter
         Object to use for converting to/from python data types
-    default: any
+    default : any
         Initial python value of the field
-    setter_callback: callable or None, optional
+    setter_callback : callable or None, optional
         function to call if the field's value changes
-    nullable: bool, optional
+    nullable : bool, optional
         ``True`` if BCS-A spaces are allowed for entire field (often denoted with "<>" in JBP Field Type).
         When ``True``, charset, range checks, conversion, etc. are bypassed when the python-typed value is ``None``.
 
@@ -756,7 +753,6 @@ class BinaryPlaceholder(JbpIOComponent):
     """Represents a block of large binary data.
 
     This class does not actually read, write or store data, only seek past it.
-
     """
 
     def __init__(self, name: str, size: int):
@@ -874,11 +870,10 @@ class Group(ComponentCollection, collections.abc.Mapping):
     """
     A Collection of JBP fields.  Indexed by JBP short names.
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give the group of fields
-
     """
 
     def __init__(self, name):
@@ -909,8 +904,9 @@ class Group(ComponentCollection, collections.abc.Mapping):
 
     def find_all(self, pattern: str) -> Iterator[JbpIOComponent]:
         """Find child components with names matching a regex pattern
-        Args
-        ----
+
+        Parameters
+        ----------
         pattern : str
             Regex pattern
 
@@ -963,17 +959,16 @@ class SecurityFields(Group):
     """
     JBP security header/subheader fields
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give this component
-    x: str
+    x : str
         Value to replace leading "x" of Short Name in fields
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.10-1 and Table 5.10-2
-
     """
 
     def __init__(self, name: str, x: str):
@@ -1166,37 +1161,36 @@ class FileHeader(Group):
     """
     JBP File Header
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give the object
-    numi_callback: callable
+    numi_callback : callable
         Function to call when NUMI changes
-    lin_callback: callable
+    lin_callback : callable
         Function to call when LIn changes
-    nums_callback: callable
+    nums_callback : callable
         Function to call when NUMS changes
-    lsn_callback: callable
+    lsn_callback : callable
         Function to call when LSn changes
-    numt_callback: callable
+    numt_callback : callable
         Function to call when NUMT changes
-    ltn_callback: callable
+    ltn_callback : callable
         Function to call when LTn changes
-    numdes_callback: callable
+    numdes_callback : callable
         Function to call when NUMDES changes
-    ldn_callback: callable
+    ldn_callback : callable
         Function to call when LDn changes
-    numres_callback: callable
+    numres_callback : callable
         Function to call when NUMRES changes
-    lreshn_callback: callable
+    lreshn_callback : callable
         Function to call when LRESHn changes
-    lren_callback: callable
+    lren_callback : callable
         Function to call when LREn changes
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.11-1
-
     """
 
     def __init__(
@@ -1726,15 +1720,14 @@ class ImageSubheader(Group):
     """
     Image Subheader fields
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give this component
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.13-1
-
     """
 
     def __init__(self, name: str):
@@ -2360,15 +2353,14 @@ class GraphicSubheader(Group):
     """
     Graphic Subheader fields
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give this component
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.15-1
-
     """
 
     def __init__(self, name: str):
@@ -2568,15 +2560,14 @@ class TextSubheader(Group):
     """
     Text Subheader fields
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give this component
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.17-1
-
     """
 
     def __init__(self, name: str):
@@ -2732,9 +2723,9 @@ class DataExtensionSubheader(Group):
     """
     Data Extension Segment (DES) Subheader with unrecognized user-defined subheader fields
 
-    Args
-    ----
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give this component
     desid_constraint : RangeCheck or None, optional
         Decoded range check for 'DESID'
@@ -2743,10 +2734,9 @@ class DataExtensionSubheader(Group):
     desshl_constraint : RangeCheck or None, optional
         Decoded range check for 'DESSHL'
 
-    Note
-    ----
+    Notes
+    -----
     See JBP-2025.1 Table 5.18-1
-
     """
 
     def __init__(
@@ -2898,8 +2888,8 @@ def des_subheader_factory(
 ) -> DataExtensionSubheader:
     """Create a Data Extension Segment (DES) subheader
 
-    Args
-    ----
+    Parameters
+    ----------
     desid : str
         Unique DES type identifier
     desver : int
@@ -2979,7 +2969,6 @@ class Jbp(Group):
     * TextSegments
     * DataExtensionSegments
     * ReservedExtensionSegments
-
     """
 
     def __init__(self):
@@ -3384,13 +3373,12 @@ class TreSequence(ComponentCollection, collections.abc.MutableSequence):
 
     Intended for use as the user defined and/or extended data fields.  See Section 5.9.3.
 
-    Arguments
-    ---------
-    name: str
+    Parameters
+    ----------
+    name : str
         Name to give the field
-    length: int
+    length : int
         Initial length in bytes
-
     """
 
     def __init__(self, name, length):
@@ -3439,8 +3427,8 @@ class Tre(Group):
 
     Includes the TRETAG and TREL tags.
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     identifier : str
         identifier of the TRE.  Must be 1-6 characters.
     tretag_rename : str
@@ -3450,8 +3438,8 @@ class Tre(Group):
     length_constraint : RangeCheck or None
         Decoded range check for 'TREL' field.  Defaults to MinMax(1, 99985)
 
-    Note
-    ----
+    Notes
+    -----
     BIIF and JBP define TREs as having 3 fields, TRETAG, TREL, and. TREDATA.
     However, TREs commonly rename TRETAG and TREL and define their own fields as replacing TREDATA.
     """
@@ -3554,8 +3542,8 @@ def available_tres() -> dict[str, Callable[[], Tre]]:
 def tre_factory(tretag: str) -> Tre:
     """Create a TRE instance
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     tretag : str
         The 1-6 character name of the TRE
 

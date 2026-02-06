@@ -25,6 +25,16 @@ select = [
 ]
 preview = true
 
+[tool.numpydoc_validation]
+checks = [
+    "GL02",  # Closing quotes should be placed in the line after the last text in the docstring (do not close the quotes in the same line as the text, or leave a blank line between the last text and the quotes)
+    "GL03",  # Double line break found; please use only one blank line to separate sections or paragraphs, and do not leave blank lines at the end of docstrings
+    "GL06",  # Found unknown section "{section}". Allowed sections are: "{allowed_sections}"
+    "GL07",  # Sections are in the wrong order. Correct order is: {correct_sections}
+    "PR03",  # Wrong parameters order
+    "PR10",  # Parameter "{param_name}" requires a space before the colon
+]
+
 [project]
 dynamic = ["version"]
 requires-python = ">= 3.11"
@@ -54,6 +64,7 @@ dev = [
     "pytest",
     "smart_open[http]",
     "numpy",
+    "numpydoc>=1.10.0",
     {include-group = "examples"},
 ]
 

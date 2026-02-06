@@ -16,8 +16,8 @@ _PVTYPE_TO_AP_TYPE_STRING = {"INT": "u", "SI": "i", "R": "f", "C": "c"}
 def array_protocol_typestr(pvtype: str, nbpp: int) -> str:
     """Generate a NumPy array interface protocol typestr describing a NITF pixel
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     pvtype : str
         Image subheader Pixel Value Type (PVTYPE)
     nbpp : int
@@ -53,8 +53,8 @@ class BinaryUnsignedInteger(jbpy.core.PythonConverter):
 class MaskTable(jbpy.core.Group):
     """JBP Image Data Mask Table
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     name : str
         Name to give this group
     image_subheader : jbpy.core.ImageSubheader
@@ -63,7 +63,6 @@ class MaskTable(jbpy.core.Group):
     Notes
     -----
     image_subheader must not change after initializing this class.
-
     """
 
     def __init__(self, name: str, image_subheader: jbpy.core.ImageSubheader):
@@ -189,8 +188,8 @@ class MaskTable(jbpy.core.Group):
     def bmr_name(block_index: int, band_index: int) -> str:
         """Generate the expected name for BMRnBNDm given indices
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         block_index : int
             Linear index of the block (zero-based).  "n"
         band_index : int
@@ -200,7 +199,6 @@ class MaskTable(jbpy.core.Group):
         -------
         str
             Field name
-
         """
         return f"BMR{block_index:08d}BND{band_index:05d}"
 
@@ -208,8 +206,8 @@ class MaskTable(jbpy.core.Group):
     def tmr_name(block_index: int, band_index: int) -> str:
         """Generate the expected name for TMRnBNDm given indices
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         block_index : int
             Linear index of the block (one-based).  "n"
         band_index : int
@@ -219,7 +217,6 @@ class MaskTable(jbpy.core.Group):
         -------
         str
             Field name
-
         """
         return f"TMR{block_index:08d}BND{band_index:05d}"
 
@@ -229,9 +226,9 @@ def read_mask_table(
 ) -> MaskTable:
     """Read an image segment's mask table
 
-    Arguments
-    ---------
-    image_segment: ImageSegment
+    Parameters
+    ----------
+    image_segment : ImageSegment
         Which image segment's mask table to read
     file : file-like
         JBP file containing the image_segment
@@ -271,8 +268,8 @@ def image_array_description(
     Always describes a 3D shape with one axis being the bands.
     Axis containing the bands is determined by the IMODE field.
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     image_segment : jbpy.core.ImageSegment
         The image segment to describe
 
@@ -366,8 +363,8 @@ def block_info_uncompressed(
     """
     Describe the blocks comprising an uncompressed image segment
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     image_segment : ImageSegment
         Which image segment to describe
     file : file-like
@@ -394,8 +391,8 @@ def block_info_uncompressed(
 def nominal_block_info(image_subheader: jbpy.core.ImageSubheader) -> list[BlockInfo]:
     """Create a list of block information assuming an image is uncompressed and unmasked (IC=NC)
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     image_subheader : jbpy.core.ImageSubheader
         Subheader of the image to describe
 
@@ -565,8 +562,8 @@ def apply_mask_table_to_block_info(
 ) -> list[BlockInfo]:
     """Return a copy of a block_info list with information from a mask table applied
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     image_subheader : jbpy.core.ImageSubheader
         Subheader of the image to describe
     block_info : list of BlockInfo

@@ -15,8 +15,8 @@ class EXOPTA(core.Tre):
     """Exploitation Usability Optical Information Extension Format
     See STDI-0002 Volume 1 App E, Table E-10
 
-    Note
-    ----
+    Notes
+    -----
     Very similar to USE00A...
     """
 
