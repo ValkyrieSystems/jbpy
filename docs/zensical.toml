@@ -14,11 +14,12 @@ Copyright &copy; 2026, Valkyrie Systems Corporation
 
 nav = [
     { "Get started" = "index.md"},
+    { "CLI Reference" = "cli.md"},
     {"API Reference" = [
         {"jbpy" = "api/jbpy.md"},
         {"jbpy.core" = "api/jbpy/core.md"},
         {"jbpy.image_data" = "api/jbpy/image_data.md"},
-    ]}
+    ]},
 ]
 
 
