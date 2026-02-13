@@ -6,7 +6,7 @@ build:
   jobs:
     install:
       - pip install --upgrade pip
-      - pip install --group 'docs'
+      - pip install --group 'docs' .
     build:
       html:
         - make docs
