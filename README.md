@@ -30,15 +30,53 @@ $ conda install --channel conda-forge jbpy
 ## License
 This repository is licensed under the [MIT license](./LICENSE).
 
-## Testing
-Some tests rely on the [JITC Quick Look Test Data](https://jitc.fhu.disa.mil/projects/nitf/testdata.aspx).
-If this data is available, it can be used by setting the `JBPY_JITC_QUICKLOOK_DIR` environment variable.
+## Features
+### Jbp objects
+`jbpy.Jbp` objects provide a dict-like interface to JBP files.
 
-```bash
-JBPY_JITC_QUICKLOOK_DIR=<path> pytest
+```python
+>>> from tempfile import TemporaryFile
+>>> import jbpy
+>>> ntf = jbpy.Jbp()
+>>> ntf["FileHeader"]["OSTAID"].value = "README"
+>>> ntf.finalize()
+>>> file = TemporaryFile()
+>>> _ = ntf.dump(file)
+
 ```
 
-## Support Data Extensions
+```python
+>>> ntf2 = jbpy.Jbp()
+>>> _ = file.seek(0)
+>>> _ = ntf2.load(file)
+>>> ntf2["FileHeader"]["OSTAID"].print()
+OSTAID                  10 @          15 b'README    '
+
+```
+
+### Utilities
+**jbpy** command-line utilities make it easy to inspect JBP files.
+
+```console
+$ jbpdump NITF_TXT_POS_04.ntf --text-segment 0
+Text Only Segment.
+```
+
+Directly accessing URLs is possible when [`smart_open`](https://pypi.org/project/smart-open/) is installed.
+
+```console
+$ jbpinfo https://capella-open-data.s3.amazonaws.com/data/2020/12/7/CAPELLA_C02_SM_SICD_HH_20201207083444_20201207083448/CAPELLA_C02_SM_SICD_HH_20201207083444_20201207083448.ntf | head -n 7
+FHDR                     4 @           0 b'NITF'
+FVER                     5 @           4 b'02.10'
+CLEVEL                   2 @           9 b'06'
+STYPE                    4 @          11 b'BF01'
+OSTAID                  10 @          15 b'CAPELLA HQ'
+FDT                     14 @          25 b'20230701003316'
+FTITLE                  80 @          39 b'SICD: CAPELLA_C02_SM_SICD_HH_20201207083444_20201207083448.ntf                  '
+
+```
+
+### Support Data Extensions
 The JBP document provides extensibility through Support Data Extensions (SDEs) such as Tagged Record Extensions (TREs)
 and Data Extension Segments (DES).
 To mimic this extensibility, `jbpy` defines two entry point groups which are used to load SDE plugins:
@@ -52,7 +90,7 @@ they are declared under these entry point groups as described below.
 > [!WARNING]
 > There is not currently a mechanism to arbitrate multiple SDEs that are registered under the same plugin name.
 
-### TREs
+#### TREs
 A TRE plugin is named using a 6-character (left-justified and space-padded) TRETAG.
 The object reference must resolve to a function with no required arguments that instantiates a `jbpy.core.Tre` object.
 
@@ -71,7 +109,7 @@ Once registered, a TRE object can be instantiated using `jbpy.tre_factory`:
 
 ```
 
-### DES Subheaders
+#### DES Subheaders
 A DES subheader plugin is named using a 27-character string formed by concatenating the 25-character DESID and 2-digit
 DESVER.
 The object reference must resolve to a function that accepts a string-valued name and instantiates a
@@ -90,4 +128,12 @@ Once registered, a DES subheader object can be instantiated using `jbpy.des_subh
 >>> import jbpy
 >>> des_subhdr = jbpy.des_subheader_factory("MY DES SUBHEADER", 24)
 
+```
+
+## Testing
+Some tests rely on the [JITC Quick Look Test Data](https://jitc.fhu.disa.mil/projects/nitf/testdata.aspx).
+If this data is available, it can be used by setting the `JBPY_JITC_QUICKLOOK_DIR` environment variable.
+
+```bash
+JBPY_JITC_QUICKLOOK_DIR=<path> pytest
 ```
