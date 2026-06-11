@@ -61,8 +61,8 @@ class SubFile:
 
     def __init__(self, file: Any, start: int, length: int):
         self._file = file
-        self._start = start
-        self._length = length
+        self._start = int(start)
+        self._length = int(length)
         self._pos = 0  # position within the subfile
 
     def seek(self, offset: int, whence: int = 0) -> int:
@@ -82,11 +82,11 @@ class SubFile:
             Current offset in the SubFile
         """
         if whence == 0:
-            new_pos = offset
+            new_pos = int(offset)
         elif whence == 1:
-            new_pos = self._pos + offset
+            new_pos = self._pos + int(offset)
         elif whence == 2:
-            new_pos = self._length + offset
+            new_pos = self._length + int(offset)
         else:
             raise ValueError(f"whence value {whence} unsupported")
 
