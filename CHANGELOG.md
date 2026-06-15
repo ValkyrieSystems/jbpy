@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `SubFile.seek` for some integer-like scalar types (e.g. `numpy.unsignedinteger`)
+
 
 ## [0.6.0] - 2026-02-03
 

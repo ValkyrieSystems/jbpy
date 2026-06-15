@@ -9,6 +9,7 @@ import random
 import string
 import tempfile
 
+import numpy as np
 import pytest
 
 import jbpy.core
@@ -783,6 +784,11 @@ def test_subfile(tmp_path):
         assert subfile.tell() == expected_pos
         subfile.seek(length + 100)
         assert subfile.read() == b""
+
+        # seeking works with int-like
+        subfile.seek(np.uint8(24), os.SEEK_SET)
+        subfile.seek(-8, os.SEEK_CUR)
+        assert subfile.tell() == 16
 
         assert subfile.readable()
 
