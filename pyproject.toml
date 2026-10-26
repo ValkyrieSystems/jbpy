@@ -56,27 +56,37 @@ classifiers = [
 dependencies = [
 ]
 
+[project.optional-dependencies]
+image = [
+    "numpy>2.1.0"
+]
+
+all = [
+    "jbpy[image]"
+]
+
 [dependency-groups]
+
 dev = [
     "aiohttp",
     "mypy",
     "ruff",
     "pytest",
     "smart_open[http]",
-    "numpy",
     "numpydoc>=1.10.0",
-    {include-group = "examples"},
+    {include-group = "examples"}
 ]
 
 # Dependencies needed to run the examples
 examples = [
-    "numpy",
     "pillow",
+    "jbpy[image]"
 ]
 
 docs = [
     "pdoc>=16.0.0",
     "zensical>=0.0.18",
+    "jbpy[image]",
 ]
 
 [project.urls]
