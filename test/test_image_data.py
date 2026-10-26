@@ -1,3 +1,4 @@
+import filecmp
 import os
 import pathlib
 
@@ -5,7 +6,6 @@ import numpy as np
 import pytest
 
 import jbpy
-import jbpy.examples.extract_nitf_image
 import jbpy.image_data
 
 
@@ -137,10 +137,13 @@ def test_block_info_uncompressed():
         subheader["NCOLS"].value -= col_fill
 
         mask_table = jbpy.image_data.read_mask_table(jbp["ImageSegments"][1], file)
-
-        block_infos = jbpy.image_data.block_info_uncompressed(
-            jbp["ImageSegments"][1], file
+        block_infos = jbpy.image_data.nominal_block_info(
+            jbp["ImageSegments"][1]["subheader"]
         )
+        block_infos = jbpy.image_data.apply_mask_table_to_block_info(
+            jbp["ImageSegments"][1]["subheader"], block_infos, mask_table
+        )
+
         assert len(block_infos) == (subheader["NBPC"].value * subheader["NBPR"].value)
 
         assert block_infos[0]["block_band_index"] == 0
@@ -307,18 +310,115 @@ def test_blocked_rgb_image(with_block_mask, imode, tmp_path):
     jbp.finalize()
     with filename.open("wb") as file:
         jbp.dump(file)
-        file.seek(jbp["ImageSegments"][0]["Data"].get_offset(), os.SEEK_SET)
         if with_block_mask:
-            mask_table.dump(file)
-        for info in included_block_info:
-            block = np.zeros(info["shape"], dtype=info["typestr"])
-            block[info["block_slicing"]] = array[info["image_slicing"]]
-            file.write(block.tobytes())
+            jbpy.image_data.write_uncompressed_image_data(
+                jbp, 0, file, array, mask_table
+            )
+        else:
+            jbpy.image_data.write_uncompressed_image_data(jbp, 0, file, array)
 
     with filename.open("rb") as file:
         jbp2 = jbpy.Jbp()
         jbp2.load(file)
-        read_array, _ = jbpy.examples.extract_nitf_image.read_entire_image_uncompressed(
-            jbp2["ImageSegments"][0], file
-        )
+        read_array, _ = jbpy.image_data.read_uncompressed_image_data(jbp2, 0, file)
         np.testing.assert_array_equal(read_array, expected)
+
+
+def find_supported_jitc_cases():
+    root_dir = os.environ.get("JBPY_JITC_QUICKLOOK_DIR")
+    files = []
+    if root_dir is not None:
+        for candidate in pathlib.Path(root_dir).glob("**/*IMG_POS*.ntf"):
+            jbp = jbpy.Jbp()
+            with candidate.open("rb") as file:
+                jbp.load(file)
+                compressions = set(
+                    imseg["subheader"]["IC"].value for imseg in jbp["ImageSegments"]
+                )
+                if compressions <= set(jbpy.image_data.COMPRESSION_READERS):
+                    files.append(candidate)
+    return files
+
+
+def get_num_bands(subheader):
+    if subheader["NBANDS"].value != 0:
+        return subheader["NBANDS"].value
+    return subheader["XBANDS"].value
+
+
+@pytest.mark.skipif(
+    "JBPY_JITC_QUICKLOOK_DIR" not in os.environ,
+    reason="requires JITC Quick-Look data",
+)
+@pytest.mark.parametrize("filename", find_supported_jitc_cases())
+def test_roundtrip(filename, tmp_path):
+    rt_filename = tmp_path / "rt.ntf"
+    jbp = jbpy.Jbp()
+    with filename.open("rb") as ifile, rt_filename.open("wb") as ofile:
+        jbp.load(ifile)
+        jbp.dump(ofile)
+        for idx, imseg in enumerate(jbp["ImageSegments"]):
+            image, band_axis = jbpy.image_data.read_image_data(jbp, idx, ifile)
+            assert image.ndim == 3
+            assert image.shape[band_axis] == get_num_bands(imseg["subheader"])
+
+            if "M" in imseg["subheader"]["IC"].value:
+                mask_table = jbpy.image_data.read_mask_table(imseg, ifile)
+                jbpy.image_data.write_uncompressed_image_data(
+                    jbp, idx, ofile, image, mask_table=mask_table
+                )
+            else:
+                mask_table = None
+                jbpy.image_data.write_uncompressed_image_data(jbp, idx, ofile, image)
+
+    filecmp.cmp(filename, rt_filename)
+
+
+def test_byteswap(tmp_path):
+    jbp = jbpy.Jbp()
+    shape = (1000, 2000)
+    image = np.random.default_rng(123).integers(0, 2**16 - 1, size=shape, dtype="<u2")
+
+    jbp = jbpy.Jbp()
+    jbp["FileHeader"]["NUMI"].value = 1
+    imseg = jbp["ImageSegments"][0]
+    subhdr = imseg["subheader"]
+    subhdr["NROWS"].value = image.shape[0]
+    subhdr["NCOLS"].value = image.shape[1]
+    subhdr["IREP"].value = "MONO"
+    subhdr["NBANDS"].value = 1
+    subhdr["IREPBAND00001"].value = "M"
+    subhdr["IMODE"].value = "B"
+    subhdr["IC"].value = "NC"
+    subhdr["PVTYPE"].value = "INT"
+    subhdr["NBPP"].value = 16
+    subhdr["ABPP"].value = 16
+    subhdr["NPPBV"].value = 0
+    subhdr["NPPBH"].value = 0
+    subhdr["NBPC"].value = 1
+    subhdr["NBPR"].value = 1
+    imseg["Data"].size = image.nbytes
+    jbp.finalize()
+
+    output_file = tmp_path / "file.ntf"
+
+    with output_file.open("wb") as ofile:
+        jbp.dump(ofile)
+        # testing for both single band 2D and automatic byteswapping
+        assert image.ndim == 2
+        assert image.dtype == image.dtype.newbyteorder("<")
+        jbpy.image_data.write_uncompressed_image_data(
+            jbp,
+            0,
+            ofile,
+            image,
+        )
+
+    with output_file.open("rb") as file:
+        jbp2 = jbpy.Jbp()
+        jbp2.load(file)
+        image2, band_index = jbpy.image_data.read_image_data(jbp2, 0, file)
+        assert band_index == 0
+        assert image2.shape == (1,) + image.shape
+        assert image2.dtype == ">u2"
+        np.testing.assert_array_equal(image2[0], image)

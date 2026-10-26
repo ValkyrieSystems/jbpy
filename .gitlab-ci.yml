@@ -33,8 +33,20 @@ test:
     echo ${wheels[*]}
     [ ${#wheels[*]} -eq 1 ]  # make sure there is only one
     wheel_file=${wheels[0]}
-    python -m pip install --group dev ${wheel_file}
+    python -m pip install --group dev ${wheel_file}[all]
     make test
+
+test_nodep:
+  stage: test
+  dependencies:
+    - build_wheel
+  script: |
+    wheels=( dist/*whl )
+    echo ${wheels[*]}
+    [ ${#wheels[*]} -eq 1 ]  # make sure there is only one
+    wheel_file=${wheels[0]}
+    python -m pip install ${wheel_file}
+    python test/dependency_tests/default.py
 
 docs:
   stage: test

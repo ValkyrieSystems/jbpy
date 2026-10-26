@@ -1,12 +1,22 @@
 """Functions for handling image segment data"""
 
+from __future__ import annotations  # needed for python < 3.14
+
 import copy
 import itertools
+import logging
 import math
 import os
 import typing
 
 import jbpy.core
+
+try:
+    import numpy as np
+
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 BLOCK_NOT_RECORDED = 0xFFFFFFFF
 
@@ -237,6 +247,7 @@ def read_mask_table(
     -------
     dictionary containing the mask table values or None if there is no mask table
     """
+    assert "M" in image_segment["subheader"]["IC"].value
     file.seek(image_segment["Data"].get_offset(), os.SEEK_SET)
     mt = MaskTable("MaskTable", image_segment["subheader"])
     mt.load(file)
@@ -357,37 +368,6 @@ class BlockInfo(typing.TypedDict):
     pad_value: bytes | None
 
 
-def block_info_uncompressed(
-    image_segment: jbpy.core.ImageSegment, file: jbpy.core.BinaryFile_R | None = None
-) -> list[BlockInfo]:
-    """
-    Describe the blocks comprising an uncompressed image segment
-
-    Parameters
-    ----------
-    image_segment : ImageSegment
-        Which image segment to describe
-    file : file-like
-        JBP file containing the image_segment.  Required if image segment contains Mask Table. (IC field contains "M")
-
-    Returns
-    -------
-    list of BlockInfo dictionaries
-    """
-    subhdr = image_segment["subheader"]
-    assert subhdr["IC"].value in ("NC", "NM")
-
-    block_info = nominal_block_info(subhdr)
-
-    mask_table = None
-    if "M" in subhdr["IC"].value:
-        assert file is not None
-        mask_table = read_mask_table(image_segment, file)
-        block_info = apply_mask_table_to_block_info(subhdr, block_info, mask_table)
-
-    return block_info
-
-
 def nominal_block_info(image_subheader: jbpy.core.ImageSubheader) -> list[BlockInfo]:
     """Create a list of block information assuming an image is uncompressed and unmasked (IC=NC)
 
@@ -398,7 +378,7 @@ def nominal_block_info(image_subheader: jbpy.core.ImageSubheader) -> list[BlockI
 
     Returns
     -------
-    list of BlockInfo dictionaries
+    list of BlockInfo dictionaries in the order they would appear in the data stream
     """
 
     assert (
@@ -552,6 +532,8 @@ def nominal_block_info(image_subheader: jbpy.core.ImageSubheader) -> list[BlockI
         }
         blocks.append(info)
 
+    blocks = sorted(blocks, key=lambda x: x["offset"] or 0)
+
     return blocks
 
 
@@ -609,3 +591,229 @@ def apply_mask_table_to_block_info(
             info["has_pad"] = mask_table[tmr_name].value != BLOCK_NOT_RECORDED
 
     return block_info
+
+
+def _fetch_uncompressed_block(
+    block_info: BlockInfo, file: jbpy.core.BinaryFile_R, image_data_offset: int
+) -> np.ndarray:
+    """Read a single uncompressed image block from a file"""
+
+    if not HAS_NUMPY:
+        raise ModuleNotFoundError(
+            "numpy is required for reading blocked data, but is not installed."
+        )
+
+    logging.debug(
+        f"fetching block {block_info['block_band_index'], block_info['block_row_index'], block_info['block_col_index']}"
+    )
+
+    dtype = np.dtype(block_info["typestr"])
+    if block_info["offset"] is None:
+        logging.debug("block not present in file, zero filling")
+        return np.broadcast_to(dtype.type(0), block_info["shape"])
+    offset_to_block = image_data_offset + block_info["offset"]
+    array: np.ndarray
+    try:
+        array = np.memmap(
+            file,
+            mode="readonly",
+            dtype=dtype,
+            offset=offset_to_block,
+            shape=block_info["shape"],
+        )  # type: ignore
+    except Exception:
+        logging.debug("memmap failed. Using seek and read")
+        file.seek(offset_to_block, os.SEEK_SET)
+        array = np.frombuffer(
+            file.read(block_info["nbytes"]),
+            dtype=dtype,
+            count=np.prod(block_info["shape"]),
+        ).reshape(block_info["shape"])
+
+    if block_info["has_pad"]:
+        # TODO use numpy masked arrays
+        logging.warning("Unhandled pad pixels")
+    return array
+
+
+def read_uncompressed_image_data(
+    jbp: jbpy.core.Jbp,
+    image_segment_index: int,
+    file: jbpy.core.BinaryFile_R,
+) -> tuple[np.ndarray, int]:
+    """
+    Read an image data stream and mosaic into a contiguous raster
+
+    Parameters
+    ----------
+    jbp : Jbp
+        Jbp object
+    image_segment_index : int
+        index of the image segment to read
+    file : file-like
+        JBP file open for binary reading
+
+    Returns
+    -------
+    image : ndarray
+        3D array with one axis being the bands and the remaining two rows and columns respectively
+    band_axis : int
+        which axis of the ndarray contains the band(s)
+    """
+    if not HAS_NUMPY:
+        raise ModuleNotFoundError(
+            "numpy is required for writing an ndarray, but is not installed."
+        )
+
+    image_segment = jbp["ImageSegments"][image_segment_index]
+    subhdr = image_segment["subheader"]
+    if subhdr["IC"].value not in ("NC", "NM"):
+        raise NotImplementedError("Compression not supported")
+
+    blocks = nominal_block_info(subhdr)
+    if "M" in subhdr["IC"].value:
+        mask_table = read_mask_table(image_segment, file)
+        blocks = apply_mask_table_to_block_info(subhdr, blocks, mask_table)
+
+    shape, band_axis, dtype_string = image_array_description(image_segment)
+    array = np.empty(shape, dtype=dtype_string)
+
+    for info in blocks:
+        block_array = _fetch_uncompressed_block(
+            info, file, image_segment["Data"].get_offset()
+        )
+        array[info["image_slicing"]] = block_array[info["block_slicing"]]
+
+    return array, band_axis
+
+
+COMPRESSION_READERS = {
+    "NC": read_uncompressed_image_data,
+    "NM": read_uncompressed_image_data,
+}
+
+# TODO compression reader entrypoint?
+
+
+def read_image_data(
+    jbp: jbpy.core.Jbp,
+    image_segment_index: int,
+    file: jbpy.core.BinaryFile_R,
+) -> tuple[np.ndarray, int]:
+    """
+    Read the pixel data from an image segment
+
+    Parameters
+    ----------
+    jbp : Jbp
+        Jbp object
+    image_segment_index : int
+        index of the image segment to read
+    file : file-like
+        JBP file open for binary reading
+
+    Returns
+    -------
+    image : ndarray
+        3D array with one axis being the bands and the remaining two rows and columns respectively
+    band_axis : int
+        which axis of the ndarray contains the band(s)
+    """
+
+    image_segment = jbp["ImageSegments"][image_segment_index]
+    compression = image_segment["subheader"]["IC"].value
+    handler = COMPRESSION_READERS.get(compression)
+
+    if handler is not None:
+        return handler(jbp, image_segment_index, file)
+
+    raise NotImplementedError(f"Unhandled compression {compression}")
+
+
+def write_uncompressed_image_data(
+    jbp: jbpy.core.Jbp,
+    image_segment_index: int,
+    file: jbpy.core.BinaryFile_RW,
+    array: np.ndarray,
+    mask_table: MaskTable | None = None,
+) -> None:
+    """
+    Write NC or NM image data
+
+    Parameters
+    ----------
+    jbp : Jbp
+        Jbp object
+    image_segment_index : int
+        index of the image segment to write
+    file : file-like
+        JBP file open for binary reading and writing
+    array : ndarray
+        image to write
+    mask_table : MaskTable or None, optional
+        The mask table to use when compression is "NM"
+    """
+
+    if not HAS_NUMPY:
+        raise ModuleNotFoundError(
+            "numpy is required for writing an ndarray, but is not installed."
+        )
+    image_segment = jbp["ImageSegments"][image_segment_index]
+
+    if image_segment["subheader"]["IC"].value not in ("NC", "NM"):
+        raise NotImplementedError("Compression not supported")
+
+    if image_segment["subheader"]["IC"].value == "NM" and mask_table is None:
+        raise RuntimeError("mask_table required when image compression is 'NM'")
+
+    expected_shape, expected_band_axis, expected_typestr = image_array_description(
+        image_segment
+    )
+
+    if array.ndim == 2 and image_segment["subheader"]["NBANDS"].value == 1:
+        # need array to always be 3D with a band axis
+        array = np.expand_dims(array, expected_band_axis)
+
+    if array.shape != expected_shape:
+        raise RuntimeError(f"array has shape {array.shape}, expected {expected_shape}")
+
+    if array.dtype.newbyteorder("=") != np.dtype(expected_typestr).newbyteorder("="):
+        # only allowed to differ by byte-order
+        raise RuntimeError(
+            f"array has incompatible type {array.dtype.str}, expected {expected_typestr}"
+        )
+
+    file.seek(image_segment["Data"].get_offset(), os.SEEK_SET)
+
+    blocks = nominal_block_info(image_segment["subheader"])
+    if mask_table is not None:
+        blocks = apply_mask_table_to_block_info(
+            image_segment["subheader"], blocks, mask_table
+        )
+        blocks = [
+            block for block in blocks if block["offset"] is not None
+        ]  # masked blocks aren't written
+
+    # Verify LInnn is set correctly
+    block_size = np.prod(blocks[-1]["shape"]) * np.dtype(blocks[-1]["typestr"]).itemsize
+    data_size = blocks[-1]["offset"] + block_size  # type: ignore
+    length_name = f"LI{image_segment_index + 1:03d}"
+    li = jbp["FileHeader"][length_name].value
+    if data_size != li:
+        raise RuntimeError(
+            f"Mismatch between {length_name}: {li} and data size to be written: {data_size}"
+        )
+
+    if mask_table is not None:
+        mask_table.dump(file)
+
+    for block in blocks:
+        if block["fill_rows"] or block["fill_cols"]:
+            tile = np.zeros(block["shape"], dtype=block["typestr"])
+            tile[block["block_slicing"]] = array[block["image_slicing"]]
+        else:
+            tile = array[block["image_slicing"]]
+
+        tile = tile.astype(expected_typestr, copy=False)  # handle byte-swapping
+        tile = np.ascontiguousarray(tile)  # JBP is row-major
+        tile.tofile(file)  # type: ignore
