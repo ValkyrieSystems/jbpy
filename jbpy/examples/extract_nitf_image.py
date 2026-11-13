@@ -1,8 +1,6 @@
 import logging
-import os
 
 import numpy as np
-import numpy.typing as npt
 from PIL import Image
 
 import jbpy
@@ -12,68 +10,6 @@ try:
     from smart_open import open
 except ImportError:
     pass
-
-
-def _fetch_block_uncompressed(
-    info: jbpy.image_data.BlockInfo,
-    file: jbpy.core.BinaryFile_R,
-    image_data_offset,
-):
-    logging.debug(
-        f"fetching block {info['block_band_index'], info['block_row_index'], info['block_col_index']}"
-    )
-
-    dtype = np.dtype(info["typestr"])
-    if info["offset"] is None:
-        logging.debug("block not present in file, zero filling")
-        return np.broadcast_to(dtype.type(0), info["shape"])
-    offset_to_block = image_data_offset + info["offset"]
-    array: npt.NDArray
-    try:
-        array = np.memmap(
-            file,
-            mode="readonly",
-            dtype=dtype,
-            offset=offset_to_block,
-            shape=info["shape"],
-        )  # type: ignore
-    except Exception:
-        logging.debug("memmap failed. Using seek and read")
-        file.seek(offset_to_block, os.SEEK_SET)
-        array = np.frombuffer(
-            file.read(info["nbytes"]),
-            dtype=dtype,
-            count=np.prod(info["shape"]),
-        ).reshape(info["shape"])
-
-    if info["has_pad"]:
-        # TODO use numpy masked arrays
-        logging.warning("Unhandled pad pixels")
-    return array
-
-
-def read_entire_image_uncompressed(
-    image_segment: jbpy.core.ImageSegment,
-    file: jbpy.core.BinaryFile_R,
-):
-    subhdr = image_segment["subheader"]
-    assert subhdr["IC"].value in ("NC", "NM")
-
-    blocks = jbpy.image_data.block_info_uncompressed(image_segment, file)
-    logging.debug(f"reading {len(blocks)} blocks")
-
-    shape, band_axis, dtype_string = jbpy.image_data.image_array_description(
-        image_segment
-    )
-    array = np.empty(shape, dtype=dtype_string)
-
-    for info in blocks:
-        block_array = _fetch_block_uncompressed(
-            info, file, image_segment["Data"].get_offset()
-        )
-        array[info["image_slicing"]] = block_array[info["block_slicing"]]
-
-    return array, band_axis
 
 
 def write_image(array, band_axis, output_filename):
@@ -125,7 +61,9 @@ def main(args=None):
         if image_segment["subheader"]["IC"].value not in ("NC", "NM"):
             raise RuntimeError("Only uncompressed image segments are supported")
 
-        array, band_axis = read_entire_image_uncompressed(image_segment, file)
+        array, band_axis = jbpy.image_data.read_uncompressed_image_data(
+            image_segment, file
+        )
 
     if config.pil is not None:
         write_image(array, band_axis, config.pil)
