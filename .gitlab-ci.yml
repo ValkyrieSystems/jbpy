@@ -3,7 +3,7 @@ stages:
   - test
   - deploy
 
-image: python:3.11
+image: python:3.13
 
 default:
   before_script:
