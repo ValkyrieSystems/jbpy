@@ -12,7 +12,7 @@ class ICHIPB(core.Tre):
 
         self._append(
             core.Field(
-                "XFRM_FLG",
+                "XFRM_FLAG",
                 "Non-linear Transformation Flag",
                 2,
                 charset=core.BCSN_PI,

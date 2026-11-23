@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Typo in `jbpy.extensions.tre.ICHIPB`: "XFRM_FLG" -> "XFRM_FLAG"
+
 
 ## [0.7.0] - 2026-11-13
 
