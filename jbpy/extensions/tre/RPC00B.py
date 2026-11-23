@@ -48,9 +48,10 @@ class SciFloat(core.PythonConverter):
             prec=self.fractional_digits + 1,
             Emin=emin,
             Emax=emax,
-            clamp=True,
-            traps=[decimal.Overflow],  # type: ignore  # mypy seems to be wrong when it flags this
-        ):
+            clamp=1,
+        ) as ctx:
+            # apparent bug in _pydecimal prevents setting traps in localcontext
+            ctx.traps[decimal.Overflow] = True
             try:
                 d = decimal.Decimal.from_float(decoded_value).normalize()
             except decimal.Overflow:
